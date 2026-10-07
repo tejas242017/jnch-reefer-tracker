@@ -1,0 +1,8 @@
+﻿.venv/
+pw-browsers/
+manifests/*.xlsx
+*.pyc
+__pycache__/
+tracker_log.txt
+run_silent.bat
+run_hidden.vbs
