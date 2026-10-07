@@ -28,7 +28,7 @@ GMAIL_APP_PASSWORD = (os.getenv("GMAIL_APP_PASSWORD") or "").strip()
 ALERT_RECEIVER = (os.getenv("ALERT_RECEIVER") or GMAIL_SENDER).strip()
 
 TARGET_LINES = ["WAN HAI", "ONE", "CMA CGM", "MAERSK", "RCL", "SAMUDERA", "COSCO", "MSC", "HYUNDAI", "HMM"]
-REEFER_CODES = ["4532", "45R1", "42R1", "22R1", "40RH", "40RF", "20RF", "RF", "RH", "REEF"]
+REEFER_CODES = ["4532", "4530", "45R1", "42R1", "22R1", "2230", "2232", "40RH", "40RF", "20RF", "RF", "RH", "REEF"]
 
 CFS_NAME_MAP = {
     "AMY": "Ameya Logistics CFS",
@@ -38,7 +38,21 @@ CFS_NAME_MAP = {
     "JCF": "JWC CFS",
     "CLP": "Continental Logistics Park",
     "CON": "Concor Dronagiri CFS",
-    "TGT": "TG Terminals CFS"
+    "TGT": "TG Terminals CFS",
+    "GDL": "Gateway Distriparks (GDL) CFS",
+    "ACG": "Allcargo Logistics CFS"
+}
+
+# Line to Primary Terminal Mapping at JNPA
+LINE_TERMINAL_DEFAULT = {
+    "MSC": "BMCT (PSA Mumbai)",
+    "ONE": "GTI (APM Terminals)",
+    "HMM": "GTI (APM Terminals)",
+    "HYUNDAI": "GTI (APM Terminals)",
+    "MAERSK": "GTI (APM Terminals)",
+    "CMA CGM": "NSFT (JM Baxi / CMA)",
+    "WAN HAI": "BMCT (PSA Mumbai)",
+    "COSCO": "NSIGT (DP World)"
 }
 
 def get_seen_containers():
@@ -58,7 +72,7 @@ def read_any_format(filepath):
             xls = pd.ExcelFile(filepath, engine=engine)
             target_sheet = xls.sheet_names[0]
             for s in xls.sheet_names:
-                if any(k in s.upper() for k in ["ADVANCE", "IMPORT", "BMCT", "GTI", "NSICT"]):
+                if any(k in s.upper() for k in ["ADVANCE", "IMPORT", "BMCT", "GTI", "NSICT", "LIST"]):
                     target_sheet = s
                     break
             return pd.read_excel(filepath, sheet_name=target_sheet, engine=engine)
@@ -99,10 +113,13 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
 
         type_col = next((c for c in df.columns if any(k in c for k in ["ISO", "TYPE", "SIZE", "EQPTYPE"])), None)
         cntr_col = next((c for c in df.columns if any(k in c for k in ["CONTAINER", "CNTR", "EQ_NO"])), None)
-        temp_col = next((c for c in df.columns if c in ["TEMP", "TEMPERATURE", "SET_TEMP"]), None)
+        temp_col = next((c for c in df.columns if c in ["TEMP", "TEMPERATURE", "SET_TEMP", "TEMPERATURE_C"])), None)
         pol_col = next((c for c in df.columns if any(k in c for k in ["POL", "LOAD", "ORIGIN"])), None)
-        group_col = next((c for c in df.columns if any(k in c for k in ["GROUPCODE", "GROUP_CODE", "CFS", "PARTY"])), None)
+        group_col = next((c for c in df.columns if any(k in c for k in ["GROUPCODE", "GROUP_CODE", "CFS", "PARTY", "NOMINATED_CFS"])), None)
         weight_col = next((c for c in df.columns if any(k in c for k in ["WEIGHT", "GROSS", "WT"])), None)
+        
+        # Manifest B/L identification
+        bl_col = next((c for c in df.columns if any(k == c or k in c for k in ["BL_NO", "B/L", "BOL", "DOC_NO", "BILL", "WAYBILL", "MBL"])), None)
 
         if not type_col or not cntr_col:
             return None
@@ -133,16 +150,22 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
         matched["_POL"] = matched[pol_col].astype(str).str.strip() if pol_col else "N/A"
         matched["_WEIGHT"] = matched[weight_col].astype(str).str.strip() if weight_col else "N/A"
         matched["_GROUP_CFS"] = matched[group_col].astype(str).str.strip() if group_col else "N/A"
+        
+        # Store manifest-provided B/L if available
+        matched["_MANIFEST_BL"] = matched[bl_col].astype(str).str.strip() if bl_col else "NOT_FOUND"
 
+        # Determine terminal from file name, sheet, or default shipping line call
         fname_upper = filepath.upper()
         if "BMCT" in fname_upper or "PSA" in fname_upper:
-            term = "BMCT"
+            term = "BMCT (PSA Mumbai)"
         elif "GTI" in fname_upper or "APMT" in fname_upper:
-            term = "GTI"
+            term = "GTI (APM Terminals)"
         elif "NSICT" in fname_upper or "NSIGT" in fname_upper or "DPW" in fname_upper:
-            term = "DPW"
+            term = "DP World (NSICT/NSIGT)"
+        elif "NSFT" in fname_upper or "JNPCT" in fname_upper:
+            term = "NSFT (JM Baxi)"
         else:
-            term = "CASCADE"
+            term = next((v for k, v in LINE_TERMINAL_DEFAULT.items() if k in line.upper()), "BMCT / GTI (Cascade)")
         matched["_TERMINAL"] = term
 
         return matched
@@ -163,7 +186,7 @@ async def resolve_via_bmct(page, cntr_no):
             text = await page.inner_text("body")
             bls = [m for m in re.findall(r'\b[A-Z]{4}[0-9A-Z]{7,12}\b', text) if m != cntr_no]
             if bls:
-                return bls[0], "BMCT (PSA)"
+                return bls[0], "BMCT (PSA Mumbai)"
     except Exception:
         pass
     return None, None
@@ -180,7 +203,7 @@ async def resolve_via_gti(page, cntr_no):
             text = await page.inner_text("body")
             bls = [m for m in re.findall(r'\b[A-Z]{4}[0-9A-Z]{7,12}\b', text) if m != cntr_no]
             if bls:
-                return bls[0], "GTI (APMT)"
+                return bls[0], "GTI (APM Terminals)"
     except Exception:
         pass
     return None, None
@@ -203,13 +226,13 @@ async def resolve_via_dpworld(page, cntr_no):
     return None, None
 
 async def cascade_resolve_master_bl(page, cntr_no, hinted_terminal):
-    if hinted_terminal == "BMCT":
+    if "BMCT" in hinted_terminal:
         bl, term = await resolve_via_bmct(page, cntr_no)
         if bl: return bl, term
-    elif hinted_terminal == "GTI":
+    elif "GTI" in hinted_terminal:
         bl, term = await resolve_via_gti(page, cntr_no)
         if bl: return bl, term
-    elif hinted_terminal == "DPW":
+    elif "DP" in hinted_terminal:
         bl, term = await resolve_via_dpworld(page, cntr_no)
         if bl: return bl, term
 
@@ -217,19 +240,19 @@ async def cascade_resolve_master_bl(page, cntr_no, hinted_terminal):
         bl, term = await func(page, cntr_no)
         if bl: return bl, term
 
-    return "UNRESOLVED", "Unknown Terminal"
+    return None, None
 
 # --- ICEGATE Cargo & Invoice Scraper ---
 
 async def scrape_icegate(page, master_bl):
     data = {
-        "fruit": "Perishable Fruit Consignment",
-        "cartons": "N/A",
-        "invoices": "N/A",
+        "fruit": "Advance Perishable Consignment",
+        "cartons": "Declared in Manifest",
+        "invoices": "Pending Filing",
         "gross_wt": "N/A",
         "sister_containers": []
     }
-    if not master_bl or master_bl == "UNRESOLVED":
+    if not master_bl or master_bl in ["UNRESOLVED", "PENDING_BERTH", "NOT_FOUND"]:
         return data
 
     try:
@@ -283,20 +306,21 @@ async def scrape_icegate(page, master_bl):
             modal_text = await page.inner_text("body")
             data["sister_containers"] = sorted(list(set(re.findall(r'\b[A-Z]{4}\d{7}\b', modal_text))))
     except Exception as e:
-        print(f"    [!] ICEGATE error for {master_bl}: {e}")
+        print(f"    [!] ICEGATE query note for {master_bl}: {e}")
     return data
 
 # --- LDB Live DOM Node Scraper ---
 
 async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
+    resolved_cfs = CFS_NAME_MAP.get(manifest_group_code, manifest_group_code)
     info = {
-        "cfs_name": CFS_NAME_MAP.get(manifest_group_code, manifest_group_code),
+        "cfs_name": resolved_cfs if resolved_cfs else "Designated Yard",
         "port_in_time": "N/A",
         "port_out_time": "N/A",
         "cfs_in_time": "N/A",
         "cfs_out_time": "N/A",
-        "latest_milestone": "En-route to Yard",
-        "market_pressure": "HOLDING AT CFS"
+        "latest_milestone": "PRE-ARRIVAL (Vessel in Transit)",
+        "market_pressure": "IN TRANSIT (Vessel sailing to JNPT)"
     }
     try:
         url = f"https://ldb.co.in/ldb/containersearch/39/{cntr_no}"
@@ -315,7 +339,7 @@ async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
 
         for line in body.splitlines():
             clean = line.strip()
-            if any(k in clean.upper() for k in ["AMEYA", "SEABIRD", "SPEEDWAYS", "ALLCARGO", "CONTINENTAL", "CFS"]):
+            if any(k in clean.upper() for k in ["AMEYA", "SEABIRD", "SPEEDWAYS", "ALLCARGO", "CONTINENTAL", "GATEWAY", "GDL", "CFS"]):
                 if len(clean) < 70 and not clean.startswith("Next Delivery"):
                     info["cfs_name"] = clean
                     break
@@ -342,7 +366,7 @@ async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
         elif info["cfs_in_time"] != "N/A":
             info["latest_milestone"] = f"CFS IN ({info['cfs_in_time']})"
             today_weekday = datetime.today().weekday()
-            if today_weekday in [3, 4, 5]:
+            if today_weekday in [3, 4, 5]: # Thu, Fri, Sat
                 info["market_pressure"] = "HIGH MONDAY GLUT RISK (Holding at CFS)"
             else:
                 info["market_pressure"] = "HOLDING AT CFS (Customs / PQ)"
@@ -353,7 +377,7 @@ async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
             info["latest_milestone"] = f"DISCHARGED AT BERTH ({info['port_in_time']})"
             info["market_pressure"] = "PORT TERMINAL DISCHARGE"
     except Exception as e:
-        print(f"    [!] LDB live parse error for {cntr_no}: {e}")
+        print(f"    [!] LDB check notice for {cntr_no}: {e}")
     return info
 
 # --- Executive HTML Email Report ---
@@ -370,7 +394,7 @@ def send_container_wise_intelligence_email(report_items):
         containers_blocks = ""
         for c in item["containers_detail"]:
             ldb_link = f"https://ldb.co.in/ldb/containersearch/39/{c['cntr']}"
-            status_color = "#d93025" if "CFS OUT" in c["latest_milestone"] else "#137333"
+            status_color = "#d93025" if "CFS OUT" in c["latest_milestone"] else ("#f9ab00" if "PRE-ARRIVAL" in c["latest_milestone"] else "#137333")
 
             containers_blocks += f"""
             <div style="background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 12px; padding: 14px; border-left: 5px solid {status_color};">
@@ -385,9 +409,9 @@ def send_container_wise_intelligence_email(report_items):
                 <table style="width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.5;">
                     <tr><td style="color: #5f6368; width: 32%;"><strong>Port Discharge:</strong></td><td>{c['port_in']}</td></tr>
                     <tr><td style="color: #5f6368;"><strong>Port Gate OUT:</strong></td><td>{c['port_out']}</td></tr>
-                    <tr><td style="color: #5f6368;"><strong>CFS Yard:</strong></td><td><strong>{c['cfs_name']}</strong></td></tr>
-                    <tr><td style="color: #5f6368;"><strong>Current Status:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['latest_milestone']}</td></tr>
-                    <tr><td style="color: #5f6368;"><strong>APMC Decision:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['market_pressure']}</td></tr>
+                    <tr><td style="color: #5f6368;"><strong>Nominated CFS Yard:</strong></td><td><strong>{c['cfs_name']}</strong></td></tr>
+                    <tr><td style="color: #5f6368;"><strong>Current Movement:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['latest_milestone']}</td></tr>
+                    <tr><td style="color: #5f6368;"><strong>APMC Pressure:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['market_pressure']}</td></tr>
                 </table>
             </div>
             """
@@ -460,7 +484,6 @@ async def run_tracker():
             await page.goto("https://dpdjnch.com/ShippingLine/AdvanceListing.aspx", wait_until="networkidle", timeout=45000)
             await page.wait_for_timeout(2000)
 
-            # Paginate through DPD table to find active target lines
             rows = await page.locator("table tr").all()
             print(f"[*] Total rows on current DPD page: {len(rows)}")
 
@@ -510,13 +533,28 @@ async def run_tracker():
                     sample_cntr = group.iloc[0]["_CNTR"]
                     term_hint = group.iloc[0]["_TERMINAL"]
                     pol_val = group.iloc[0]["_POL"]
+                    manifest_bl = group.iloc[0].get("_MANIFEST_BL", "NOT_FOUND")
 
                     print(f"\n[*] Resolving Master B/L for consignment {vessel} ({sample_cntr})...")
+                    
+                    # 1. Try Terminal Cascade
                     master_bl, active_terminal = await cascade_resolve_master_bl(page, sample_cntr, term_hint)
-                    print(f"    -> Terminal: {active_terminal} | Master B/L: {master_bl}")
+                    
+                    # 2. Fallback to Manifest B/L if vessel hasn't berthed yet
+                    if not master_bl:
+                        if manifest_bl not in ["NOT_FOUND", "nan", "None", ""]:
+                            master_bl = manifest_bl
+                            active_terminal = term_hint
+                            print(f"    -> Extracted B/L directly from Advance Manifest: {master_bl}")
+                        else:
+                            master_bl = f"PENDING BERTH (Vessel {vessel} in transit)"
+                            active_terminal = term_hint
+                            print(f"    -> Vessel not yet berthed at {active_terminal}. B/L pending discharge.")
 
+                    # Query Customs ICEGATE
                     icegate_data = await scrape_icegate(page, master_bl)
 
+                    # Inspect individual container physical status
                     containers_detail = []
                     for _, row in group.iterrows():
                         cntr = row["_CNTR"]
