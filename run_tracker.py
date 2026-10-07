@@ -113,7 +113,7 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
 
         type_col = next((c for c in df.columns if any(k in c for k in ["ISO", "TYPE", "SIZE", "EQPTYPE"])), None)
         cntr_col = next((c for c in df.columns if any(k in c for k in ["CONTAINER", "CNTR", "EQ_NO"])), None)
-        temp_col = next((c for c in df.columns if c in ["TEMP", "TEMPERATURE", "SET_TEMP", "TEMPERATURE_C"])), None)
+        temp_col = next((c for c in df.columns if c in ["TEMP", "TEMPERATURE", "SET_TEMP", "TEMPERATURE_C"]), None)
         pol_col = next((c for c in df.columns if any(k in c for k in ["POL", "LOAD", "ORIGIN"])), None)
         group_col = next((c for c in df.columns if any(k in c for k in ["GROUPCODE", "GROUP_CODE", "CFS", "PARTY", "NOMINATED_CFS"])), None)
         weight_col = next((c for c in df.columns if any(k in c for k in ["WEIGHT", "GROSS", "WT"])), None)
