@@ -8,7 +8,6 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pandas as pd
 
-# Environment detection: Local E: Drive vs GitHub Actions Cloud Runner
 IS_WINDOWS = sys.platform == "win32"
 if IS_WINDOWS:
     BASE_DIR = r"E:\DPD_Tracker_Sandbox"
@@ -31,6 +30,17 @@ ALERT_RECEIVER = (os.getenv("ALERT_RECEIVER") or GMAIL_SENDER).strip()
 TARGET_LINES = ["WAN HAI", "ONE", "CMA CGM", "MAERSK", "RCL", "SAMUDERA", "COSCO", "MSC", "HYUNDAI", "HMM"]
 REEFER_CODES = ["4532", "45R1", "42R1", "22R1", "40RH", "40RF", "20RF", "RF", "RH", "REEF"]
 
+CFS_NAME_MAP = {
+    "AMY": "Ameya Logistics CFS",
+    "EFC": "Continental Warehousing / EFC CFS",
+    "CNT": "CWC CFS Navi Mumbai",
+    "ULA": "Ulman CFS",
+    "JCF": "JWC CFS",
+    "CLP": "Continental Logistics Park",
+    "CON": "Concor Dronagiri CFS",
+    "TGT": "TG Terminals CFS"
+}
+
 def get_seen_containers():
     if not os.path.exists(SEEN_CONTAINERS_FILE):
         return set()
@@ -43,11 +53,9 @@ def mark_containers_seen(new_cntrs):
             f.write(f"{c}\n")
 
 def read_any_format(filepath):
-    # Check all sheets for Excel
     for engine in ["openpyxl", "xlrd"]:
         try:
             xls = pd.ExcelFile(filepath, engine=engine)
-            # Prefer sheets with Advance List or BMCTPL/GTI
             target_sheet = xls.sheet_names[0]
             for s in xls.sheet_names:
                 if any(k in s.upper() for k in ["ADVANCE", "IMPORT", "BMCT", "GTI", "NSICT"]):
@@ -99,20 +107,16 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
         if not type_col or not cntr_col:
             return None
 
-        # Filter 1: Reefer Equipment Code
         reefer_regex = "|".join([rf"\b{re.escape(c)}\b" for c in REEFER_CODES]) + r"|RH|RF|REEF"
         is_reefer_code = df[type_col].astype(str).str.contains(reefer_regex, case=False, na=False)
 
-        # Filter 2: Temperature Setpoint (Fresh Produce: +1.0°C to +6.0°C)
         is_fresh_temp = pd.Series(False, index=df.index)
         if temp_col:
             temps = pd.to_numeric(df[temp_col], errors="coerce")
             is_fresh_temp = (temps >= 1.0) & (temps <= 6.5)
 
-        # Container is targeted if it matches reefer ISO or fresh fruit temp setpoint
         fruit_mask = is_reefer_code | is_fresh_temp
         if temp_col:
-            # Explicitly exclude frozen cargo (-23°C) and ambient/pharma (+20°C)
             temps = pd.to_numeric(df[temp_col], errors="coerce")
             fruit_mask = fruit_mask & ~((temps <= -10.0) | (temps >= 15.0))
 
@@ -130,8 +134,6 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
         matched["_WEIGHT"] = matched[weight_col].astype(str).str.strip() if weight_col else "N/A"
         matched["_GROUP_CFS"] = matched[group_col].astype(str).str.strip() if group_col else "N/A"
 
-        # Detect Discharging Terminal from manifest/filepath
-        term = "CASCADE"
         fname_upper = filepath.upper()
         if "BMCT" in fname_upper or "PSA" in fname_upper:
             term = "BMCT"
@@ -139,8 +141,8 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
             term = "GTI"
         elif "NSICT" in fname_upper or "NSIGT" in fname_upper or "DPW" in fname_upper:
             term = "DPW"
-        elif "NSFT" in fname_upper or "JNPCT" in fname_upper:
-            term = "NSFT"
+        else:
+            term = "CASCADE"
         matched["_TERMINAL"] = term
 
         return matched
@@ -201,7 +203,6 @@ async def resolve_via_dpworld(page, cntr_no):
     return None, None
 
 async def cascade_resolve_master_bl(page, cntr_no, hinted_terminal):
-    # 1. Targeted check if hinted
     if hinted_terminal == "BMCT":
         bl, term = await resolve_via_bmct(page, cntr_no)
         if bl: return bl, term
@@ -212,15 +213,9 @@ async def cascade_resolve_master_bl(page, cntr_no, hinted_terminal):
         bl, term = await resolve_via_dpworld(page, cntr_no)
         if bl: return bl, term
 
-    # 2. Sequential Cascade Fallback across all terminals
-    bl, term = await resolve_via_bmct(page, cntr_no)
-    if bl: return bl, term
-
-    bl, term = await resolve_via_gti(page, cntr_no)
-    if bl: return bl, term
-
-    bl, term = await resolve_via_dpworld(page, cntr_no)
-    if bl: return bl, term
+    for func in [resolve_via_bmct, resolve_via_gti, resolve_via_dpworld]:
+        bl, term = await func(page, cntr_no)
+        if bl: return bl, term
 
     return "UNRESOLVED", "Unknown Terminal"
 
@@ -242,7 +237,6 @@ async def scrape_icegate(page, master_bl):
         await page.goto(url, wait_until="networkidle", timeout=35000)
         await page.wait_for_timeout(1500)
 
-        # Location INNSA1
         loc_box = page.locator("ng-select input").first
         await loc_box.click()
         await loc_box.fill("INNSA1")
@@ -254,13 +248,11 @@ async def scrape_icegate(page, master_bl):
             await page.keyboard.press("Enter")
         await page.wait_for_timeout(600)
 
-        # Master B/L
         bl_box = page.locator("input[placeholder*='Enter Master BL']").first
         await bl_box.click()
         await bl_box.fill(master_bl)
         await page.wait_for_timeout(600)
 
-        # Search
         await page.locator("button:has-text('Search')").first.click()
         await page.wait_for_timeout(4000)
 
@@ -280,7 +272,6 @@ async def scrape_icegate(page, master_bl):
                     data["gross_wt"] = f"{wt_match.group(1)} KGS"
                 break
 
-        # Click View for Container Details
         view_btn = page.locator("table a:has-text('View'), table button:has-text('View')").first
         if await view_btn.count() > 0:
             await view_btn.click()
@@ -295,30 +286,22 @@ async def scrape_icegate(page, master_bl):
         print(f"    [!] ICEGATE error for {master_bl}: {e}")
     return data
 
-# --- LDB CFS & Movement Milestone Scraper ---
+# --- LDB Live DOM Node Scraper ---
 
-CFS_NAME_MAP = {
-    "AMY": "Ameya Logistics CFS",
-    "EFC": "Continental Warehousing / EFC CFS",
-    "CNT": "CWC CFS Navi Mumbai",
-    "ULA": "Ulman CFS",
-    "JCF": "JWC CFS",
-    "CLP": "Continental Logistics Park",
-    "CON": "Concor Dronagiri CFS",
-    "TGT": "TG Terminals CFS"
-}
-
-async def scrape_ldb_status(page, cntr_no, manifest_group_code):
+async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
     info = {
         "cfs_name": CFS_NAME_MAP.get(manifest_group_code, manifest_group_code),
-        "milestone": "En-route to Yard",
-        "market_pressure": "NORMAL",
-        "last_update": datetime.now().strftime("%d-%b-%Y")
+        "port_in_time": "N/A",
+        "port_out_time": "N/A",
+        "cfs_in_time": "N/A",
+        "cfs_out_time": "N/A",
+        "latest_milestone": "En-route to Yard",
+        "market_pressure": "HOLDING AT CFS"
     }
     try:
         url = f"https://ldb.co.in/ldb/containersearch/39/{cntr_no}"
-        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-        await page.wait_for_timeout(2000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+        await page.wait_for_timeout(2500)
 
         close_btn = page.locator("button.close, span:has-text('×'), button:has-text('×')").first
         if await close_btn.count() > 0 and await close_btn.is_visible():
@@ -329,113 +312,117 @@ async def scrape_ldb_status(page, cntr_no, manifest_group_code):
                 pass
 
         body = await page.inner_text("body")
+
         for line in body.splitlines():
             clean = line.strip()
             if any(k in clean.upper() for k in ["AMEYA", "SEABIRD", "SPEEDWAYS", "ALLCARGO", "CONTINENTAL", "CFS"]):
-                if len(clean) < 70:
+                if len(clean) < 70 and not clean.startswith("Next Delivery"):
                     info["cfs_name"] = clean
                     break
 
+        dt_pattern = r'\b(\d{2}-\d{2}-\d{4}\s+\d{2}:\d{2}:\d{2}(?:\s+IST)?)\b'
         for line in body.splitlines():
             clean = line.strip()
-            if any(k in clean.upper() for k in ["CFS OUT", "CFS IN", "GATE OUT", "GATE IN"]):
-                if len(clean) < 50:
-                    info["milestone"] = clean
-                    break
+            if "PORT IN" in clean.upper():
+                m = re.search(dt_pattern, clean)
+                if m: info["port_in_time"] = m.group(1)
+            elif "PORT OUT" in clean.upper():
+                m = re.search(dt_pattern, clean)
+                if m: info["port_out_time"] = m.group(1)
+            elif "CFS IN" in clean.upper():
+                m = re.search(dt_pattern, clean)
+                if m: info["cfs_in_time"] = m.group(1)
+            elif "CFS OUT" in clean.upper():
+                m = re.search(dt_pattern, clean)
+                if m: info["cfs_out_time"] = m.group(1)
 
-        # Strategic Vashi APMC Timing Analysis
-        today_weekday = datetime.today().weekday()  # 3=Thursday, 4=Friday, 5=Saturday, 0=Monday
-        if "CFS OUT" in info["milestone"].upper():
-            info["market_pressure"] = "IMMEDIATE (Landing at Vashi APMC Tonight)"
-        elif "CFS IN" in info["milestone"].upper():
-            if today_weekday in [3, 4, 5]: # Thu, Fri, Sat hold
-                info["market_pressure"] = "HIGH MONDAY GLUT RISK (Dumped Mon Night)"
+        if info["cfs_out_time"] != "N/A":
+            info["latest_milestone"] = f"CFS OUT ({info['cfs_out_time']})"
+            info["market_pressure"] = "APMC ARRIVED / DISPATCHED"
+        elif info["cfs_in_time"] != "N/A":
+            info["latest_milestone"] = f"CFS IN ({info['cfs_in_time']})"
+            today_weekday = datetime.today().weekday()
+            if today_weekday in [3, 4, 5]:
+                info["market_pressure"] = "HIGH MONDAY GLUT RISK (Holding at CFS)"
             else:
-                info["market_pressure"] = "HOLDING AT CFS (Customs/PQ)"
-    except Exception:
-        pass
+                info["market_pressure"] = "HOLDING AT CFS (Customs / PQ)"
+        elif info["port_out_time"] != "N/A":
+            info["latest_milestone"] = f"PORT OUT ({info['port_out_time']}) -> Drayage to CFS"
+            info["market_pressure"] = "EVACUATING TO CFS"
+        elif info["port_in_time"] != "N/A":
+            info["latest_milestone"] = f"DISCHARGED AT BERTH ({info['port_in_time']})"
+            info["market_pressure"] = "PORT TERMINAL DISCHARGE"
+    except Exception as e:
+        print(f"    [!] LDB live parse error for {cntr_no}: {e}")
     return info
 
 # --- Executive HTML Email Report ---
 
-def send_market_intelligence_report(report_data):
+def send_container_wise_intelligence_email(report_items):
     if not GMAIL_SENDER or not GMAIL_APP_PASSWORD:
-        print("[!] GMAIL credentials missing. Skipping email.")
+        print("[!] GMAIL credentials missing.")
         return
 
-    subject = f"🍏 Vashi APMC Fruit Supply Intelligence: {len(report_data)} Consignment(s) Detected!"
+    subject = f"🚨 [VASHI APMC REPORT] Fruit Imports: {len(report_items)} Consignment(s) Detected!"
     cards_html = ""
 
-    for item in report_data:
-        ldb_link = f"https://ldb.co.in/ldb/containersearch/39/{item['primary_cntr']}"
-        pressure_color = "#d93025" if "GLUT" in item['market_pressure'] or "IMMEDIATE" in item['market_pressure'] else "#137333"
+    for item in report_items:
+        containers_blocks = ""
+        for c in item["containers_detail"]:
+            ldb_link = f"https://ldb.co.in/ldb/containersearch/39/{c['cntr']}"
+            status_color = "#d93025" if "CFS OUT" in c["latest_milestone"] else "#137333"
+
+            containers_blocks += f"""
+            <div style="background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 12px; padding: 14px; border-left: 5px solid {status_color};">
+                <div style="border-bottom: 1px solid #f1f3f4; padding-bottom: 6px; margin-bottom: 8px;">
+                    <span style="font-size: 15px; font-weight: bold; font-family: monospace; color: #1a73e8;">
+                        <a href="{ldb_link}" target="_blank" style="text-decoration: none; color: #1a73e8;">{c['cntr']}</a>
+                    </span>
+                    <span style="float: right; background-color: #f1f3f4; color: #202124; padding: 2px 7px; border-radius: 4px; font-size: 12px; font-weight: bold;">
+                        ISO: {c['iso']} | {c['temp']}°C
+                    </span>
+                </div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.5;">
+                    <tr><td style="color: #5f6368; width: 32%;"><strong>Port Discharge:</strong></td><td>{c['port_in']}</td></tr>
+                    <tr><td style="color: #5f6368;"><strong>Port Gate OUT:</strong></td><td>{c['port_out']}</td></tr>
+                    <tr><td style="color: #5f6368;"><strong>CFS Yard:</strong></td><td><strong>{c['cfs_name']}</strong></td></tr>
+                    <tr><td style="color: #5f6368;"><strong>Current Status:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['latest_milestone']}</td></tr>
+                    <tr><td style="color: #5f6368;"><strong>APMC Decision:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['market_pressure']}</td></tr>
+                </table>
+            </div>
+            """
 
         cards_html += f"""
-        <div style="background: #ffffff; border: 1px solid #dadce0; border-radius: 8px; margin-bottom: 22px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-            <div style="border-bottom: 2px solid #1a73e8; padding-bottom: 10px; margin-bottom: 14px;">
+        <div style="background: #ffffff; border: 1px solid #dadce0; border-radius: 8px; margin-bottom: 24px; padding: 18px;">
+            <div style="border-bottom: 2px solid #1a73e8; padding-bottom: 8px; margin-bottom: 12px;">
                 <span style="font-size: 17px; font-weight: bold; color: #1a73e8;">Master B/L: {item['master_bl']}</span>
-                <span style="float: right; background-color: #e8f0fe; color: #1a73e8; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold;">{item['line']}</span>
+                <span style="float: right; background-color: #e8f0fe; color: #1a73e8; padding: 3px 9px; border-radius: 4px; font-size: 12px; font-weight: bold;">{item['line']}</span>
             </div>
-            
-            <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.6;">
-                <tr>
-                    <td style="color: #5f6368; width: 32%;"><strong>Fruit Cargo:</strong></td>
-                    <td style="font-weight: bold; color: #d93025; font-size: 14px;">{item['fruit']}</td>
-                </tr>
-                <tr>
-                    <td style="color: #5f6368;"><strong>Packaging & Volume:</strong></td>
-                    <td style="font-weight: bold; color: #202124;">{item['cartons']} ({item['gross_wt']})</td>
-                </tr>
-                <tr>
-                    <td style="color: #5f6368;"><strong>Temperature Setpoint:</strong></td>
-                    <td style="color: #1a73e8; font-weight: bold;">{item['temp']}°C (Fresh Fruit Protocol)</td>
-                </tr>
-                <tr>
-                    <td style="color: #5f6368;"><strong>Vessel & Origin (POL):</strong></td>
-                    <td>{item['vessel']} ({item['voyage']}) | POL: {item['pol']}</td>
-                </tr>
-                <tr>
-                    <td style="color: #5f6368;"><strong>Berthing Terminal:</strong></td>
-                    <td><strong>{item['terminal']}</strong></td>
-                </tr>
-                <tr>
-                    <td style="color: #5f6368;"><strong>Current CFS Yard:</strong></td>
-                    <td><strong>{item['cfs_name']}</strong> ({item['milestone']})</td>
-                </tr>
-                <tr>
-                    <td style="color: #5f6368;"><strong>Vashi APMC Pressure:</strong></td>
-                    <td style="color: {pressure_color}; font-weight: bold;">{item['market_pressure']}</td>
-                </tr>
-                <tr>
-                    <td style="color: #5f6368;"><strong>Total Reefer Boxes:</strong></td>
-                    <td style="font-family: monospace; font-size: 12px;">{', '.join(item['sister_containers']) if item['sister_containers'] else item['primary_cntr']}</td>
-                </tr>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; margin-bottom: 14px;">
+                <tr><td style="color: #5f6368; width: 30%;"><strong>Fruit Cargo:</strong></td><td style="color: #d93025; font-weight: bold;">{item['fruit']}</td></tr>
+                <tr><td style="color: #5f6368;"><strong>Packaging / Invoices:</strong></td><td><strong>{item['cartons']}</strong> | Inv: {item['invoices']}</td></tr>
+                <tr><td style="color: #5f6368;"><strong>Vessel & Voyage:</strong></td><td>{item['vessel']} ({item['voyage']}) &bull; Terminal: <strong>{item['terminal']}</strong></td></tr>
+                <tr><td style="color: #5f6368;"><strong>Port of Loading:</strong></td><td>{item['pol']}</td></tr>
             </table>
-
-            <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid #eee; font-size: 12px;">
-                <a href="{ldb_link}" target="_blank" style="color: #1a73e8; text-decoration: none; font-weight: bold;">🔍 Live LDB Container Tracker</a>
-            </div>
+            <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #202124;">Container Movement Breakdown:</div>
+            {containers_blocks}
         </div>
         """
 
     html = f"""
     <!DOCTYPE html>
     <html>
-    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8f9fa; padding: 20px; margin: 0; color: #202124;">
-        <div style="max-width: 720px; margin: 0 auto;">
-            <div style="background: #1a73e8; color: white; padding: 18px 24px; border-radius: 8px 8px 0 0;">
-                <h2 style="margin: 0; font-size: 21px;">🍎 Daily Nhava Sheva Fruit Import Intelligence</h2>
-                <p style="margin: 4px 0 0 0; font-size: 13px; opacity: 0.9;">Advance Cargo Volume, CFS Cold-Chain Holds & Vashi APMC Timing</p>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8f9fa; padding: 15px; margin: 0; color: #202124;">
+        <div style="max-width: 720px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #dadce0; overflow: hidden;">
+            <div style="background-color: #1a73e8; color: white; padding: 20px 24px;">
+                <h2 style="margin: 0; font-size: 20px;">🍎 JNCH Fresh Fruit Import Intelligence Audit</h2>
+                <p style="margin: 4px 0 0 0; font-size: 13px; opacity: 0.95;">Automated Container Tracking & Vashi APMC Timing Briefing</p>
             </div>
-            
-            <div style="background: white; padding: 20px; border-radius: 0 0 8px 8px; border: 1px solid #dadce0; border-top: none;">
-                <div style="background-color: #fef7e0; border-left: 4px solid #f9ab00; padding: 12px; margin-bottom: 20px; font-size: 12px; line-height: 1.5;">
-                    <strong>Decision Framework:</strong> Weekend shipping line DO blocks mean reefers clearing Friday/Saturday accumulate in CFS yards. Use the carton volumes below to decide whether to stay put at the CFS on cold-plug power or dispatch to Vashi APMC.
-                </div>
+            <div style="padding: 20px;">
                 {cards_html}
-                <p style="font-size: 11px; color: #9aa0a6; text-align: center; margin-top: 25px;">
-                    Automated JNCH Reefer Intelligence • Generated autonomously via GitHub Actions Cloud Runner
-                </p>
+                <div style="text-align: center; margin-top: 20px; font-size: 11px; color: #80868b; border-top: 1px solid #f1f3f4; padding-top: 15px;">
+                    Automated JNCH Reefer Intelligence &bull; Continuous Polling via Cloud Actions
+                </div>
             </div>
         </div>
     </body>
@@ -452,11 +439,11 @@ def send_market_intelligence_report(report_data):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(GMAIL_SENDER, GMAIL_APP_PASSWORD)
             server.sendmail(GMAIL_SENDER, ALERT_RECEIVER, msg.as_string())
-        print(f"[+] Intelligence report successfully dispatched to {ALERT_RECEIVER}!")
+        print(f"[+] Detailed container intelligence email delivered to {ALERT_RECEIVER}!")
     except Exception as e:
         print(f"[!] Email dispatch error: {e}")
 
-# --- Master Execution Routine ---
+# --- Main Automation Pipeline ---
 
 async def run_tracker():
     seen_cntrs = get_seen_containers()
@@ -502,65 +489,68 @@ async def run_tracker():
             new_reefers = master_df[~master_df["_CNTR"].isin(seen_cntrs)].copy()
 
             if not new_reefers.empty:
-                print(f"[***] Discovered {len(new_reefers)} NEW fresh fruit reefer(s). Starting Intelligence Pipeline...")
+                print(f"[***] Discovered {len(new_reefers)} NEW reefer(s). Starting Intelligence Pipeline...")
                 report_items = []
 
-                # Group by Vessel/Voyage to avoid redundant B/L resolutions
-                for _, row in new_reefers.iterrows():
-                    cntr = row["_CNTR"]
-                    line = row["_LINE"]
-                    term_hint = row["_TERMINAL"]
-                    grp_cfs = row["_GROUP_CFS"]
-                    temp_val = row["_TEMP"]
+                grouped = new_reefers.groupby(["_VESSEL", "_VOYAGE", "_LINE"])
 
-                    print(f"\n[*] Processing Container: {cntr} ({line} | Setpoint: {temp_val}°C)...")
+                for (vessel, voyage, line), group in grouped:
+                    sample_cntr = group.iloc[0]["_CNTR"]
+                    term_hint = group.iloc[0]["_TERMINAL"]
+                    pol_val = group.iloc[0]["_POL"]
 
-                    # Phase 2 & 3: Cascaded Terminal Resolver (PSA -> GTI -> DPW)
-                    master_bl, active_terminal = await cascade_resolve_master_bl(page, cntr, term_hint)
-                    print(f"    -> Resolved Terminal: {active_terminal} | Master B/L: {master_bl}")
+                    print(f"\n[*] Resolving Master B/L for consignment {vessel} ({sample_cntr})...")
+                    master_bl, active_terminal = await cascade_resolve_master_bl(page, sample_cntr, term_hint)
+                    print(f"    -> Terminal: {active_terminal} | Master B/L: {master_bl}")
 
-                    # Phase 4: Customs ICEGATE Public Enquiry
                     icegate_data = await scrape_icegate(page, master_bl)
-                    print(f"    -> ICEGATE Cargo: {icegate_data['fruit']} | Volume: {icegate_data['cartons']}")
 
-                    # Phase 5: LDB Physical CFS Location & APMC Timing Analysis
-                    ldb_data = await scrape_ldb_status(page, cntr, grp_cfs)
-                    print(f"    -> Nominated CFS: {ldb_data['cfs_name']} | Milestone: {ldb_data['milestone']}")
-                    print(f"    -> Vashi APMC Timing: {ldb_data['market_pressure']}")
+                    containers_detail = []
+                    for _, row in group.iterrows():
+                        cntr = row["_CNTR"]
+                        grp_cfs = row["_GROUP_CFS"]
+                        temp_val = row["_TEMP"]
+                        iso_val = row["_ISO"]
+
+                        print(f"    [*] Fetching Live LDB Status for {cntr}...")
+                        ldb = await scrape_ldb_live_status(page, cntr, grp_cfs)
+
+                        containers_detail.append({
+                            "cntr": cntr,
+                            "iso": iso_val,
+                            "temp": temp_val,
+                            "port_in": ldb["port_in_time"],
+                            "port_out": ldb["port_out_time"],
+                            "cfs_name": ldb["cfs_name"],
+                            "latest_milestone": ldb["latest_milestone"],
+                            "market_pressure": ldb["market_pressure"]
+                        })
 
                     report_items.append({
-                        "primary_cntr": cntr,
                         "master_bl": master_bl,
                         "line": line,
-                        "vessel": row["_VESSEL"],
-                        "voyage": row["_VOYAGE"],
-                        "pol": row["_POL"],
-                        "temp": temp_val,
+                        "vessel": vessel,
+                        "voyage": voyage,
+                        "pol": pol_val,
                         "terminal": active_terminal,
                         "fruit": icegate_data["fruit"],
                         "cartons": icegate_data["cartons"],
-                        "gross_wt": icegate_data["gross_wt"],
                         "invoices": icegate_data["invoices"],
-                        "sister_containers": icegate_data["sister_containers"] or [cntr],
-                        "cfs_name": ldb_data["cfs_name"],
-                        "milestone": ldb_data["milestone"],
-                        "market_pressure": ldb_data["market_pressure"]
+                        "containers_detail": containers_detail
                     })
 
-                # Persist to local/cloud CSV log
                 if os.path.exists(MASTER_LOG_PATH):
                     existing = pd.read_csv(MASTER_LOG_PATH)
                     pd.concat([existing, new_reefers]).drop_duplicates(subset=["_CNTR"]).to_csv(MASTER_LOG_PATH, index=False)
                 else:
                     new_reefers.to_csv(MASTER_LOG_PATH, index=False)
 
-                # Send executive briefing to your Gmail
-                send_market_intelligence_report(report_items)
+                send_container_wise_intelligence_email(report_items)
                 mark_containers_seen(new_reefers["_CNTR"].tolist())
             else:
-                print("[*] All detected reefers in current queue have already been processed.")
+                print("[*] All detected reefers have already been processed.")
         else:
-            print("[-] Scan complete. No active fresh fruit reefers found in recent filings.")
+            print("[-] Scan complete. No active fresh fruit reefers found.")
 
         await browser.close()
 
