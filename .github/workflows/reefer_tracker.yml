@@ -34,7 +34,7 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_RECEIVER: ${{ secrets.ALERT_RECEIVER }}
         run: |
-          python test_real_alert.py
+          python run_tracker.py
 
       - name: Commit and Push Updated Logs
         run: |
