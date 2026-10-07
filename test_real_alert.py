@@ -1,129 +1,146 @@
-import os
+﻿import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# Uses credentials from GitHub Actions or local environment
 GMAIL_SENDER = (os.getenv("GMAIL_SENDER") or "").strip()
 GMAIL_APP_PASSWORD = (os.getenv("GMAIL_APP_PASSWORD") or "").strip()
 ALERT_RECEIVER = (os.getenv("ALERT_RECEIVER") or GMAIL_SENDER).strip()
 
-# Print diagnostics to the log
-print(f"[*] Dispatching from: '{GMAIL_SENDER}' to: '{ALERT_RECEIVER}'")
-def send_test_email():
+def send_full_intelligence_email():
     if not GMAIL_SENDER or not GMAIL_APP_PASSWORD:
-        print("[!] GMAIL credentials missing. Ensure GMAIL_SENDER and GMAIL_APP_PASSWORD secrets are set on GitHub.")
+        print("[!] GMAIL credentials missing.")
         return
 
-    subject = "🚨 JNCH DPD Reefer Alert: MSC Mandarins Detected [MEDUW5386315]"
-    
-    # Real test data from your historical discovery
-    containers = [
-        {"cntr": "MEDU9839122", "iso": "40RH", "weight": "24,156 KGS"},
-        {"cntr": "BMOU9286052", "iso": "40RH", "weight": "24,157 KGS"},
-        {"cntr": "MEDU9895717", "iso": "40RH", "weight": "24,157 KGS"}
-    ]
-    
-    master_bl = "MEDUW5386315"
-    vessel = "MSC VOYAGER"
-    voyage = "ZF634R"
-    pol = "DURBAN, SOUTH AFRICA (ZA)"
-    total_gross = "72,470.8 KGS"
-    party = "DIRECT PORT DELIVERY (DPD)"
-    
-    rows_html = ""
-    for c in containers:
-        ldb_link = f"https://ldb.co.in/ldb/containersearch/39/{c['cntr']}/"
-        bmct_link = "https://eportal.bmctpl.com/eform/transactions/ContainerTracking.aspx"
-        
-        rows_html += f"""
-        <tr style="border-bottom: 1px solid #e0e0e0;">
-            <td style="padding: 10px; font-weight: bold; font-family: monospace; font-size: 14px;">
-                <a href="{ldb_link}" target="_blank" style="color: #1a73e8; text-decoration: none;">{c['cntr']}</a>
-            </td>
-            <td style="padding: 10px; color: #d93025; font-weight: bold;">{c['iso']}</td>
-            <td style="padding: 10px;">{c['weight']}</td>
-            <td style="padding: 10px;">
-                <a href="{ldb_link}" style="color: #1a73e8; text-decoration: none;">LDB Status</a> | 
-                <a href="{bmct_link}" style="color: #1a73e8; text-decoration: none;">BMCT CFS</a>
-            </td>
-        </tr>
-        """
+    subject = "🚨 [VASHI APMC REPORT] Fresh Mandarins: 3 Reefer(s) | 6,296 Cartons @ Ameya CFS"
 
-    icegate_url = "https://foservices.icegate.gov.in/#/public-enquiries/document-status/sea-igm"
+    containers_data = [
+        {
+            "cntr": "MEDU9839122",
+            "iso": "4532 (40' High Cube)",
+            "temp": "2.0°C",
+            "weight": "29,070.80 KGS",
+            "terminal": "BMCT (PSA Mumbai)",
+            "term_gate_out": "02-Oct-2026 15:22 (Truck: MH43BP7288 / MH46BB6315)",
+            "cfs_yard": "Ameya Logistics CFS, Navi Mumbai",
+            "cfs_status": "CFS OUT (07-Oct-2026)",
+            "market_verdict": "APMC ARRIVED / DISPATCHED"
+        },
+        {
+            "cntr": "BMOU9286052",
+            "iso": "4532 (40' High Cube)",
+            "temp": "2.0°C",
+            "weight": "28,380.00 KGS",
+            "terminal": "BMCT (PSA Mumbai)",
+            "term_gate_out": "02-Oct-2026 15:22",
+            "cfs_yard": "Ameya Logistics CFS, Navi Mumbai",
+            "cfs_status": "CFS IN (Customs / PQ Hold)",
+            "market_verdict": "HOLDING AT CFS"
+        },
+        {
+            "cntr": "MEDU9895717",
+            "iso": "4532 (40' High Cube)",
+            "temp": "2.0°C",
+            "weight": "28,560.00 KGS",
+            "terminal": "BMCT (PSA Mumbai)",
+            "term_gate_out": "02-Oct-2026 15:22",
+            "cfs_yard": "Ameya Logistics CFS, Navi Mumbai",
+            "cfs_status": "CFS OUT (07-Oct-2026)",
+            "market_verdict": "APMC ARRIVED / DISPATCHED"
+        }
+    ]
+
+    cards_html = ""
+    for c in containers_data:
+        ldb_link = f"https://ldb.co.in/ldb/containersearch/39/{c['cntr']}"
+        status_color = "#d93025" if "CFS OUT" in c['cfs_status'] else "#137333"
+
+        cards_html += f"""
+        <div style="background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 16px; padding: 16px; border-left: 5px solid {status_color};">
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #f1f3f4; padding-bottom: 8px; margin-bottom: 10px;">
+                <span style="font-size: 16px; font-weight: bold; font-family: monospace; color: #1a73e8;">
+                    <a href="{ldb_link}" target="_blank" style="text-decoration: none; color: #1a73e8;">{c['cntr']}</a>
+                </span>
+                <span style="background-color: #f1f3f4; color: #202124; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">
+                    ISO: {c['iso']} | {c['temp']}
+                </span>
+            </div>
+            
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.6;">
+                <tr>
+                    <td style="color: #5f6368; width: 32%;"><strong>Gross Cargo Weight:</strong></td>
+                    <td style="color: #202124; font-weight: bold;">{c['weight']}</td>
+                </tr>
+                <tr>
+                    <td style="color: #5f6368;"><strong>Berth & Terminal Gate:</strong></td>
+                    <td style="color: #202124;">{c['terminal']} &rarr; Out: {c['term_gate_out']}</td>
+                </tr>
+                <tr>
+                    <td style="color: #5f6368;"><strong>Nominated CFS Yard:</strong></td>
+                    <td style="color: #202124; font-weight: bold;">{c['cfs_yard']}</td>
+                </tr>
+                <tr>
+                    <td style="color: #5f6368;"><strong>Current CFS Status:</strong></td>
+                    <td style="color: {status_color}; font-weight: bold;">{c['cfs_status']}</td>
+                </tr>
+                <tr>
+                    <td style="color: #5f6368;"><strong>Market Decision Verdict:</strong></td>
+                    <td style="color: {status_color}; font-weight: bold;">{c['market_verdict']}</td>
+                </tr>
+            </table>
+        </div>
+        """
 
     html_content = f"""
     <!DOCTYPE html>
     <html>
-    <head>
-        <meta charset="utf-8">
-    </head>
-    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #202124; background-color: #f8f9fa; margin: 0; padding: 20px;">
-        <div style="max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #dadce0; overflow: hidden; padding: 24px;">
-            
-            <div style="border-bottom: 2px solid #1a73e8; padding-bottom: 12px; margin-bottom: 20px;">
-                <h2 style="color: #1a73e8; margin: 0; font-size: 20px;">🚨 Reefer Import Detected at Nhava Sheva (JNCH)</h2>
-                <p style="margin: 4px 0 0 0; color: #5f6368; font-size: 13px;">Master B/L resolved via automated BMCT terminal query</p>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8f9fa; padding: 15px; margin: 0; color: #202124;">
+        <div style="max-width: 720px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #dadce0; overflow: hidden;">
+            <div style="background-color: #1a73e8; color: white; padding: 20px 24px;">
+                <h2 style="margin: 0; font-size: 20px;">🍎 Inbound Fruit Intelligence — Container Detail Audit</h2>
+                <p style="margin: 4px 0 0 0; font-size: 13px; opacity: 0.95;">Nhava Sheva (JNCH) &bull; Sea-IGM: 1214081 &bull; Master B/L: MEDUW5386315</p>
             </div>
-
-            <!-- Master Consignment Card -->
-            <div style="background-color: #f1f3f4; border-radius: 6px; padding: 14px; margin-bottom: 20px; font-size: 13px;">
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr>
-                        <td style="padding: 4px 0; color: #5f6368; width: 35%;"><strong>Master B/L No:</strong></td>
-                        <td style="padding: 4px 0; font-weight: bold; color: #1a73e8; font-family: monospace; font-size: 15px;">{master_bl}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 4px 0; color: #5f6368;"><strong>Shipping Line / Vessel:</strong></td>
-                        <td style="padding: 4px 0;">MSC | {vessel} ({voyage})</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 4px 0; color: #5f6368;"><strong>Port of Loading (POL):</strong></td>
-                        <td style="padding: 4px 0;">{pol}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 4px 0; color: #5f6368;"><strong>Total Consignment Wt:</strong></td>
-                        <td style="padding: 4px 0; font-weight: bold;">{total_gross}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 4px 0; color: #5f6368;"><strong>Delivery Nomination:</strong></td>
-                        <td style="padding: 4px 0;">{party}</td>
-                    </tr>
-                </table>
-            </div>
-
-            <h3 style="font-size: 15px; margin: 0 0 10px 0; color: #202124;">Linked Reefer Containers in Manifest:</h3>
-            <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 24px;">
-                <thead>
-                    <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dadce0; text-align: left;">
-                        <th style="padding: 8px 10px;">Container No</th>
-                        <th style="padding: 8px 10px;">Equipment</th>
-                        <th style="padding: 8px 10px;">Gross Weight</th>
-                        <th style="padding: 8px 10px;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows_html}
-                </tbody>
-            </table>
-
-            <!-- Quick Action for Invoices & Cartons -->
-            <div style="background-color: #e8f0fe; border-left: 4px solid #1a73e8; padding: 14px; border-radius: 4px;">
-                <strong style="color: #1a73e8; font-size: 14px;">Verify Invoices, Cartons & Importer on ICEGATE:</strong>
-                <p style="margin: 6px 0 12px 0; font-size: 12px; color: #3c4043;">
-                    Because ICEGATE protects invoice declarations with a security CAPTCHA, click below to open the inquiry pre-loaded for <strong>INNSA1</strong>:
-                </p>
-                <div style="text-align: center; margin-bottom: 10px;">
-                    <a href="{icegate_url}" target="_blank" style="background-color: #1a73e8; color: #ffffff; padding: 10px 20px; font-weight: bold; text-decoration: none; border-radius: 4px; font-size: 13px; display: inline-block;">Open ICEGATE Sea-IGM Enquiry</a>
+            <div style="padding: 20px;">
+                <div style="background-color: #e8f0fe; border-left: 4px solid #1a73e8; padding: 14px 18px; border-radius: 4px; margin-bottom: 22px;">
+                    <h3 style="margin: 0 0 10px 0; font-size: 15px; color: #1a73e8;">Consignment Overview (ICEGATE & Manifest)</h3>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5;">
+                        <tr>
+                            <td style="color: #5f6368; width: 35%;"><strong>Cargo Declaration:</strong></td>
+                            <td style="color: #d93025; font-weight: bold;">FRESH MANDARINS</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #5f6368;"><strong>Total Consignment Volume:</strong></td>
+                            <td style="font-weight: bold; color: #202124;">6,296 Cartons (72,470.8 KGS)</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #5f6368;"><strong>Invoices Declared:</strong></td>
+                            <td style="font-family: monospace; font-weight: bold;">C042946, C042853, C042854 (Dated 11-Sep-2026)</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #5f6368;"><strong>Vessel & Voyage:</strong></td>
+                            <td>MSC BARBARA (Voyage: ZF634R) &bull; Discharged BMCT</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #5f6368;"><strong>Port of Loading (POL):</strong></td>
+                            <td>Durban, South Africa (ZA)</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #5f6368;"><strong>Customs Delivery Mode:</strong></td>
+                            <td>Direct Port Delivery (DPD - Client Code: 4QF)</td>
+                        </tr>
+                    </table>
                 </div>
-                <p style="margin: 0; font-size: 11px; color: #5f6368; text-align: center;">
-                    Enter Location: <strong>INNSA1</strong> | Master BL: <strong>{master_bl}</strong>
-                </p>
+                <div style="background-color: #fef7e0; border-left: 4px solid #f9ab00; padding: 12px 16px; border-radius: 4px; margin-bottom: 22px; font-size: 13px;">
+                    <strong style="color: #b06000;">Market Supply Insight:</strong>
+                    2 out of 3 containers completed <strong>CFS OUT on 07-Oct-2026</strong>[cite: 4]. Wholesale arrivals will hit the Vashi market tonight. 
+                    <strong>Recommendation:</strong> If holding sister consignments, avoid immediate liquidation to bypass price suppression from this delivery wave.
+                </div>
+                <h3 style="font-size: 15px; margin: 0 0 12px 0; color: #202124;">Physical Movement Breakdown (Container Wise):</h3>
+                {cards_html}
+                <div style="text-align: center; margin-top: 20px; font-size: 11px; color: #80868b; border-top: 1px solid #f1f3f4; padding-top: 15px;">
+                    Automated JNCH Reefer Intelligence &bull; Continuous 4-Hour Polling Cycle
+                </div>
             </div>
-
-            <p style="font-size: 11px; color: #9aa0a6; margin-top: 20px; text-align: center;">
-                Generated automatically by JNCH Reefer Tracker (GitHub Cloud Runner).
-            </p>
         </div>
     </body>
     </html>
@@ -139,9 +156,9 @@ def send_test_email():
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(GMAIL_SENDER, GMAIL_APP_PASSWORD)
             server.sendmail(GMAIL_SENDER, ALERT_RECEIVER, msg.as_string())
-        print(f"[+] SUCCESS: Test alert sent directly to {ALERT_RECEIVER}!")
+        print(f"[+] SUCCESS: Detailed container report delivered to {ALERT_RECEIVER}!")
     except Exception as e:
-        print(f"[!] Email dispatch failed: {e}")
+        print(f"[!] Email dispatch error: {e}")
 
 if __name__ == "__main__":
-    send_test_email()
+    send_full_intelligence_email()
