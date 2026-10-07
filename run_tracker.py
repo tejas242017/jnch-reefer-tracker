@@ -8,17 +8,24 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pandas as pd
 
-# ----------------- CONFIGURATION -----------------
-SANDBOX_DIR = r"E:\DPD_Tracker_Sandbox"
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(SANDBOX_DIR, "pw-browsers")
+# ----------------- NEW DYNAMIC CODE -----------------
+# Auto-detect Environment: Local E: Drive vs GitHub Actions Cloud
+IS_WINDOWS = sys.platform == "win32"
+
+if IS_WINDOWS:
+    BASE_DIR = r"E:\DPD_Tracker_Sandbox"
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(BASE_DIR, "pw-browsers")
+else:
+    # Linux (GitHub Actions)
+    BASE_DIR = os.getcwd()
 
 from playwright.async_api import async_playwright
 
-DOWNLOAD_DIR = os.path.join(SANDBOX_DIR, "manifests")
+DOWNLOAD_DIR = os.path.join(BASE_DIR, "manifests")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-MASTER_LOG_PATH = os.path.join(SANDBOX_DIR, "detected_reefers.csv")
-SEEN_CONTAINERS_FILE = os.path.join(SANDBOX_DIR, "seen_containers.txt")
+MASTER_LOG_PATH = os.path.join(BASE_DIR, "detected_reefers.csv")
+SEEN_CONTAINERS_FILE = os.path.join(BASE_DIR, "seen_containers.txt")
 
 # Gmail Alerts Settings (reads from GitHub Secrets in cloud, or falls back to local strings)
 GMAIL_SENDER = os.getenv("GMAIL_SENDER", "YOUR_GMAIL@gmail.com")
@@ -206,7 +213,7 @@ async def run_tracker():
     all_reefers = []
 
     async with async_playwright() as p:
-        print("[*] Launching Chromium from E: drive sandbox...")
+        print(f"[*] Launching Chromium ({'Windows Sandbox' if IS_WINDOWS else 'GitHub Cloud Runner'})...")
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
