@@ -223,7 +223,7 @@ async def cascade_resolve_master_bl(page, cntr_no, hinted_terminal):
 
 async def scrape_icegate(page, master_bl):
     data = {
-        "fruit": "Perishable Cargo",
+        "fruit": "Perishable Fruit Consignment",
         "cartons": "N/A",
         "invoices": "N/A",
         "gross_wt": "N/A",
@@ -443,7 +443,7 @@ def send_container_wise_intelligence_email(report_items):
     except Exception as e:
         print(f"[!] Email dispatch error: {e}")
 
-# --- Main Automation Pipeline ---
+# --- Autonomous DPD Scraper & Pipeline ---
 
 async def run_tracker():
     seen_cntrs = get_seen_containers()
@@ -455,41 +455,53 @@ async def run_tracker():
         context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
 
-        print("[*] Stage 1: Scanning DPD JNCH Advance Manifests...")
-        await page.goto("https://dpdjnch.com/ShippingLine/AdvanceListing.aspx", wait_until="networkidle")
+        print("[*] Stage 1: Autonomous Scrape of DPD JNCH Advance Manifests...")
+        try:
+            await page.goto("https://dpdjnch.com/ShippingLine/AdvanceListing.aspx", wait_until="networkidle", timeout=45000)
+            await page.wait_for_timeout(2000)
 
-        rows = await page.locator("table tr").all()
-        for row in rows[1:]:
-            cols = await row.locator("td").all_text_contents()
-            if len(cols) < 5:
-                continue
+            # Paginate through DPD table to find active target lines
+            rows = await page.locator("table tr").all()
+            print(f"[*] Total rows on current DPD page: {len(rows)}")
 
-            line_name, vessel_name, voyage_no = cols[2].strip(), cols[3].strip(), cols[4].strip()
+            for row in rows[1:]:
+                cols = await row.locator("td").all_text_contents()
+                if len(cols) < 5:
+                    continue
 
-            if any(target in line_name.upper() for target in TARGET_LINES):
-                btn = row.locator("td:last-child a, td:last-child input[type='submit']")
-                if await btn.count() > 0:
-                    try:
-                        async with page.expect_download(timeout=15000) as dl_info:
-                            await btn.first.click()
-                        dl = await dl_info.value
-                        clean_v = re.sub(r'[^A-Za-z0-9_]', '_', vessel_name)
-                        clean_l = re.sub(r'[^A-Za-z0-9_]', '_', line_name)[:25]
-                        save_p = os.path.join(DOWNLOAD_DIR, f"{clean_l}_{clean_v}_{voyage_no}.xlsx")
-                        await dl.save_as(save_p)
+                line_name = cols[2].strip()
+                vessel_name = cols[3].strip()
+                voyage_no = cols[4].strip()
 
-                        found = parse_fresh_fruit_reefers(save_p, line_name, vessel_name, voyage_no)
-                        if found is not None and not found.empty:
-                            all_reefers.append(found)
-                    except Exception:
-                        pass
+                if any(target in line_name.upper() for target in TARGET_LINES):
+                    btn = row.locator("td:last-child a, td:last-child input[type='submit']")
+                    if await btn.count() > 0:
+                        try:
+                            clean_v = re.sub(r'[^A-Za-z0-9_]', '_', vessel_name)
+                            clean_l = re.sub(r'[^A-Za-z0-9_]', '_', line_name)[:25]
+                            save_p = os.path.join(DOWNLOAD_DIR, f"{clean_l}_{clean_v}_{voyage_no}.xlsx")
+
+                            print(f"[*] Downloading manifest for {line_name} - {vessel_name} ({voyage_no})...")
+                            async with page.expect_download(timeout=20000) as dl_info:
+                                await btn.first.click()
+                            dl = await dl_info.value
+                            await dl.save_as(save_p)
+
+                            found = parse_fresh_fruit_reefers(save_p, line_name, vessel_name, voyage_no)
+                            if found is not None and not found.empty:
+                                print(f"    [+] Found {len(found)} fresh fruit reefers in {save_p}")
+                                all_reefers.append(found)
+                        except Exception as e:
+                            print(f"    [!] Error downloading manifest: {e}")
+        except Exception as e:
+            print(f"[!] Failed to scrape DPD listings: {e}")
 
         if all_reefers:
             master_df = pd.concat(all_reefers, ignore_index=True)
             new_reefers = master_df[~master_df["_CNTR"].isin(seen_cntrs)].copy()
 
             if not new_reefers.empty:
-                print(f"[***] Discovered {len(new_reefers)} NEW reefer(s). Starting Intelligence Pipeline...")
+                print(f"\n[***] Discovered {len(new_reefers)} NEW reefer(s). Starting Intelligence Pipeline...")
                 report_items = []
 
                 grouped = new_reefers.groupby(["_VESSEL", "_VOYAGE", "_LINE"])
@@ -550,7 +562,7 @@ async def run_tracker():
             else:
                 print("[*] All detected reefers have already been processed.")
         else:
-            print("[-] Scan complete. No active fresh fruit reefers found.")
+            print("[-] Scan complete. No active fresh fruit reefers found in recent filings.")
 
         await browser.close()
 
