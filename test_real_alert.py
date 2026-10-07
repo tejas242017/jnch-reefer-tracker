@@ -4,10 +4,12 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # Uses credentials from GitHub Actions or local environment
-GMAIL_SENDER = os.getenv("GMAIL_SENDER", "")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
-ALERT_RECEIVER = os.getenv("ALERT_RECEIVER", GMAIL_SENDER)
+GMAIL_SENDER = (os.getenv("GMAIL_SENDER") or "").strip()
+GMAIL_APP_PASSWORD = (os.getenv("GMAIL_APP_PASSWORD") or "").strip()
+ALERT_RECEIVER = (os.getenv("ALERT_RECEIVER") or GMAIL_SENDER).strip()
 
+# Print diagnostics to the log
+print(f"[*] Dispatching from: '{GMAIL_SENDER}' to: '{ALERT_RECEIVER}'")
 def send_test_email():
     if not GMAIL_SENDER or not GMAIL_APP_PASSWORD:
         print("[!] GMAIL credentials missing. Ensure GMAIL_SENDER and GMAIL_APP_PASSWORD secrets are set on GitHub.")

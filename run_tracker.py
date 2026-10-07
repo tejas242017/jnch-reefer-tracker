@@ -25,9 +25,9 @@ MASTER_LOG_PATH = os.path.join(BASE_DIR, "detected_reefers.csv")
 SEEN_CONTAINERS_FILE = os.path.join(BASE_DIR, "seen_containers.txt")
 
 # Read credentials from Environment (Set by GitHub Actions) or fall back to local
-GMAIL_SENDER = os.getenv("GMAIL_SENDER", "YOUR_GMAIL@gmail.com")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "YOUR_16_CHAR_APP_PASSWORD")
-ALERT_RECEIVER = os.getenv("ALERT_RECEIVER", GMAIL_SENDER)
+GMAIL_SENDER = (os.getenv("GMAIL_SENDER") or "").strip()
+GMAIL_APP_PASSWORD = (os.getenv("GMAIL_APP_PASSWORD") or "").strip()
+ALERT_RECEIVER = (os.getenv("ALERT_RECEIVER") or GMAIL_SENDER).strip()
 
 TARGET_LINES = ["WAN HAI", "ONE", "CMA CGM", "MAERSK", "RCL", "SAMUDERA", "COSCO", "MSC", "HYUNDAI", "HMM"]
 REEFER_CODES = ["45R1", "4532", "42R1", "22R1", "40RH", "40RF", "20RF", "RF", "RH", "REEF"]
