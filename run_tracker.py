@@ -1,11 +1,14 @@
 import os
 import re
 import sys
+import json
 import smtplib
 import asyncio
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 import pandas as pd
 
 IS_WINDOWS = sys.platform == "win32"
@@ -18,16 +21,22 @@ else:
 from playwright.async_api import async_playwright
 
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "manifests")
+PROCESSED_EXPORTS = os.path.join(BASE_DIR, "exports")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+os.makedirs(PROCESSED_EXPORTS, exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
 
 MASTER_LOG_PATH = os.path.join(BASE_DIR, "detected_reefers.csv")
 SEEN_CONTAINERS_FILE = os.path.join(BASE_DIR, "seen_containers.txt")
+TRACKER_STATE_JSON = os.path.join(DATA_DIR, "tracker_state.json")
 
 GMAIL_SENDER = (os.getenv("GMAIL_SENDER") or "").strip()
 GMAIL_APP_PASSWORD = (os.getenv("GMAIL_APP_PASSWORD") or "").strip()
 ALERT_RECEIVER = (os.getenv("ALERT_RECEIVER") or GMAIL_SENDER).strip()
 
-TARGET_LINES = ["WAN HAI", "ONE", "CMA CGM", "MAERSK", "RCL", "SAMUDERA", "COSCO", "MSC", "HYUNDAI", "HMM"]
+TARGET_LINES = ["WAN HAI", "ONE", "CMA CGM", "MAERSK", "RCL", "SAMUDERA", "COSCO", "MSC", "HYUNDAI", "HMM", "YANG MING"]
 REEFER_CODES = ["4532", "4530", "45R1", "42R1", "22R1", "2230", "2232", "40RH", "40RF", "20RF", "RF", "RH", "REEF"]
 
 CFS_NAME_MAP = {
@@ -40,14 +49,16 @@ CFS_NAME_MAP = {
     "CON": "Concor Dronagiri CFS",
     "TGT": "TG Terminals CFS",
     "GDL": "Gateway Distriparks (GDL) CFS",
-    "ACG": "Allcargo Logistics CFS"
+    "ACG": "Allcargo Logistics CFS",
+    "ITC": "ITC CFS",
+    "AST": "Ashte CFS",
+    "HG3": "Hind Terminals CFS"
 }
 
-# Line to Primary Terminal Mapping at JNPA
 LINE_TERMINAL_DEFAULT = {
     "MSC": "BMCT (PSA Mumbai)",
-    "ONE": "GTI (APM Terminals)",
-    "HMM": "GTI (APM Terminals)",
+    "ONE": "BMCT / GTI (Cascade)",
+    "HMM": "BMCT (PSA Mumbai)",
     "HYUNDAI": "GTI (APM Terminals)",
     "MAERSK": "GTI (APM Terminals)",
     "CMA CGM": "NSFT (JM Baxi / CMA)",
@@ -72,7 +83,7 @@ def read_any_format(filepath):
             xls = pd.ExcelFile(filepath, engine=engine)
             target_sheet = xls.sheet_names[0]
             for s in xls.sheet_names:
-                if any(k in s.upper() for k in ["ADVANCE", "IMPORT", "BMCT", "GTI", "NSICT", "LIST"]):
+                if any(k in s.upper() for k in ["ADVANCE", "IMPORT", "BMCT", "GTI", "NSICT", "LIST", "SHEET"]):
                     target_sheet = s
                     break
             return pd.read_excel(filepath, sheet_name=target_sheet, engine=engine)
@@ -112,13 +123,12 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
             return None
 
         type_col = next((c for c in df.columns if any(k in c for k in ["ISO", "TYPE", "SIZE", "EQPTYPE"])), None)
-        cntr_col = next((c for c in df.columns if any(k in c for k in ["CONTAINER", "CNTR", "EQ_NO"])), None)
+        cntr_col = next((c for c in df.columns if any(k in c for k in ["CONTAINERNBR", "CONTAINER", "CNTR", "EQ_NO"])), None)
         temp_col = next((c for c in df.columns if c in ["TEMP", "TEMPERATURE", "SET_TEMP", "TEMPERATURE_C"]), None)
         pol_col = next((c for c in df.columns if any(k in c for k in ["POL", "LOAD", "ORIGIN"])), None)
         group_col = next((c for c in df.columns if any(k in c for k in ["GROUPCODE", "GROUP_CODE", "CFS", "PARTY", "NOMINATED_CFS"])), None)
-        weight_col = next((c for c in df.columns if any(k in c for k in ["WEIGHT", "GROSS", "WT"])), None)
-        
-        # Manifest B/L identification
+        client_col = next((c for c in df.columns if any(k in c for k in ["CLIENTCODE", "CLIENT_CODE", "CONSIGNEE", "IMPORTER"])), None)
+        weight_col = next((c for c in df.columns if any(k in c for k in ["GROSSWEIGHTINKGS", "WEIGHT", "GROSS", "WT"])), None)
         bl_col = next((c for c in df.columns if any(k == c or k in c for k in ["BL_NO", "B/L", "BOL", "DOC_NO", "BILL", "WAYBILL", "MBL"])), None)
 
         if not type_col or not cntr_col:
@@ -135,7 +145,7 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
         fruit_mask = is_reefer_code | is_fresh_temp
         if temp_col:
             temps = pd.to_numeric(df[temp_col], errors="coerce")
-            fruit_mask = fruit_mask & ~((temps <= -10.0) | (temps >= 15.0))
+            fruit_mask = fruit_mask & ~((temps <= -10.0) | (temps >= 10.0))
 
         matched = df[fruit_mask].copy()
         if matched.empty:
@@ -147,14 +157,12 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
         matched["_CNTR"] = matched[cntr_col].astype(str).str.strip()
         matched["_ISO"] = matched[type_col].astype(str).str.strip()
         matched["_TEMP"] = matched[temp_col].astype(str).str.strip() if temp_col else "N/A"
-        matched["_POL"] = matched[pol_col].astype(str).str.strip() if pol_col else "N/A"
+        matched["_POL"] = matched[pol_col].astype(str).str.strip() if pol_col else "INBOUND"
         matched["_WEIGHT"] = matched[weight_col].astype(str).str.strip() if weight_col else "N/A"
         matched["_GROUP_CFS"] = matched[group_col].astype(str).str.strip() if group_col else "N/A"
-        
-        # Store manifest-provided B/L if available
-        matched["_MANIFEST_BL"] = matched[bl_col].astype(str).str.strip() if bl_col else "NOT_FOUND"
+        matched["_CLIENT_CODE"] = matched[client_col].astype(str).str.strip() if client_col else "N/A"
+        matched["_MANIFEST_BL"] = matched[bl_col].astype(str).str.strip() if bl_col else "DIRECT_SEARCH_REQUIRED"
 
-        # Determine terminal from file name, sheet, or default shipping line call
         fname_upper = filepath.upper()
         if "BMCT" in fname_upper or "PSA" in fname_upper:
             term = "BMCT (PSA Mumbai)"
@@ -162,8 +170,6 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
             term = "GTI (APM Terminals)"
         elif "NSICT" in fname_upper or "NSIGT" in fname_upper or "DPW" in fname_upper:
             term = "DP World (NSICT/NSIGT)"
-        elif "NSFT" in fname_upper or "JNPCT" in fname_upper:
-            term = "NSFT (JM Baxi)"
         else:
             term = next((v for k, v in LINE_TERMINAL_DEFAULT.items() if k in line.upper()), "BMCT / GTI (Cascade)")
         matched["_TERMINAL"] = term
@@ -177,7 +183,7 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
 
 async def resolve_via_bmct(page, cntr_no):
     try:
-        await page.goto("https://india.globalpsa.com/container-tracking/", wait_until="networkidle", timeout=25000)
+        await page.goto("https://india.globalpsa.com/container-tracking/", wait_until="networkidle", timeout=20000)
         box = page.locator("input[type='text']").first
         if await box.count() > 0:
             await box.fill(cntr_no)
@@ -199,7 +205,7 @@ async def resolve_via_gti(page, cntr_no):
         if await box.count() > 0:
             await box.fill(cntr_no)
             await page.keyboard.press("Enter")
-            await page.wait_for_timeout(3500)
+            await page.wait_for_timeout(3000)
             text = await page.inner_text("body")
             bls = [m for m in re.findall(r'\b[A-Z]{4}[0-9A-Z]{7,12}\b', text) if m != cntr_no]
             if bls:
@@ -216,7 +222,7 @@ async def resolve_via_dpworld(page, cntr_no):
         if await box.count() > 0:
             await box.fill(cntr_no)
             await page.keyboard.press("Enter")
-            await page.wait_for_timeout(3500)
+            await page.wait_for_timeout(3000)
             text = await page.inner_text("body")
             bls = [m for m in re.findall(r'\b[A-Z]{4}[0-9A-Z]{7,12}\b', text) if m != cntr_no]
             if bls:
@@ -229,30 +235,30 @@ async def cascade_resolve_master_bl(page, cntr_no, hinted_terminal):
     if "BMCT" in hinted_terminal:
         bl, term = await resolve_via_bmct(page, cntr_no)
         if bl: return bl, term
-    elif "GTI" in hinted_terminal:
         bl, term = await resolve_via_gti(page, cntr_no)
         if bl: return bl, term
-    elif "DP" in hinted_terminal:
-        bl, term = await resolve_via_dpworld(page, cntr_no)
+    else:
+        bl, term = await resolve_via_gti(page, cntr_no)
+        if bl: return bl, term
+        bl, term = await resolve_via_bmct(page, cntr_no)
         if bl: return bl, term
 
-    for func in [resolve_via_bmct, resolve_via_gti, resolve_via_dpworld]:
-        bl, term = await func(page, cntr_no)
-        if bl: return bl, term
+    bl, term = await resolve_via_dpworld(page, cntr_no)
+    if bl: return bl, term
 
     return None, None
 
-# --- ICEGATE Cargo & Invoice Scraper ---
+# --- ICEGATE Customs Scraper ---
 
 async def scrape_icegate(page, master_bl):
     data = {
         "fruit": "Advance Perishable Consignment",
-        "cartons": "Declared in Manifest",
+        "cartons": "Refer Attached Manifest",
         "invoices": "Pending Filing",
         "gross_wt": "N/A",
         "sister_containers": []
     }
-    if not master_bl or master_bl in ["UNRESOLVED", "PENDING_BERTH", "NOT_FOUND"]:
+    if not master_bl or master_bl in ["DIRECT_SEARCH_REQUIRED", "PENDING_BERTH", "NOT_FOUND"]:
         return data
 
     try:
@@ -306,26 +312,26 @@ async def scrape_icegate(page, master_bl):
             modal_text = await page.inner_text("body")
             data["sister_containers"] = sorted(list(set(re.findall(r'\b[A-Z]{4}\d{7}\b', modal_text))))
     except Exception as e:
-        print(f"    [!] ICEGATE query note for {master_bl}: {e}")
+        print(f"    [!] ICEGATE query note: {e}")
     return data
 
-# --- LDB Live DOM Node Scraper ---
+# --- LDB Live Gate Milestone Scraper ---
 
 async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
     resolved_cfs = CFS_NAME_MAP.get(manifest_group_code, manifest_group_code)
     info = {
         "cfs_name": resolved_cfs if resolved_cfs else "Designated Yard",
-        "port_in_time": "N/A",
-        "port_out_time": "N/A",
+        "port_in_time": "PENDING BERTHING",
+        "port_out_time": "PENDING DISCHARGE",
         "cfs_in_time": "N/A",
         "cfs_out_time": "N/A",
-        "latest_milestone": "PRE-ARRIVAL (Vessel in Transit)",
-        "market_pressure": "IN TRANSIT (Vessel sailing to JNPT)"
+        "latest_milestone": "SAILING IN-TRANSIT (Pre-Berthing Advance Notice)",
+        "market_pressure": "INBOUND WATER TRANSIT (Not yet landed at JNPT)"
     }
     try:
         url = f"https://ldb.co.in/ldb/containersearch/39/{cntr_no}"
-        await page.goto(url, wait_until="domcontentloaded", timeout=25000)
-        await page.wait_for_timeout(2500)
+        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        await page.wait_for_timeout(2000)
 
         close_btn = page.locator("button.close, span:has-text('×'), button:has-text('×')").first
         if await close_btn.count() > 0 and await close_btn.is_visible():
@@ -336,6 +342,8 @@ async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
                 pass
 
         body = await page.inner_text("body")
+        if "No Data Found for Exim Trail" in body:
+            return info
 
         for line in body.splitlines():
             clean = line.strip()
@@ -366,35 +374,36 @@ async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
         elif info["cfs_in_time"] != "N/A":
             info["latest_milestone"] = f"CFS IN ({info['cfs_in_time']})"
             today_weekday = datetime.today().weekday()
-            if today_weekday in [3, 4, 5]: # Thu, Fri, Sat
+            if today_weekday in [3, 4, 5]:
                 info["market_pressure"] = "HIGH MONDAY GLUT RISK (Holding at CFS)"
             else:
                 info["market_pressure"] = "HOLDING AT CFS (Customs / PQ)"
-        elif info["port_out_time"] != "N/A":
+        elif info["port_out_time"] not in ["N/A", "PENDING DISCHARGE"]:
             info["latest_milestone"] = f"PORT OUT ({info['port_out_time']}) -> Drayage to CFS"
             info["market_pressure"] = "EVACUATING TO CFS"
-        elif info["port_in_time"] != "N/A":
+        elif info["port_in_time"] not in ["N/A", "PENDING BERTHING"]:
             info["latest_milestone"] = f"DISCHARGED AT BERTH ({info['port_in_time']})"
             info["market_pressure"] = "PORT TERMINAL DISCHARGE"
     except Exception as e:
         print(f"    [!] LDB check notice for {cntr_no}: {e}")
     return info
 
-# --- Executive HTML Email Report ---
+# --- Executive Email Dispatcher with Excel Attachment ---
 
-def send_container_wise_intelligence_email(report_items):
+def send_container_wise_intelligence_email(report_items, attached_excel_path=None):
     if not GMAIL_SENDER or not GMAIL_APP_PASSWORD:
         print("[!] GMAIL credentials missing.")
         return
 
-    subject = f"🚨 [VASHI APMC REPORT] Fruit Imports: {len(report_items)} Consignment(s) Detected!"
+    subject = f"🍏 [VASHI APMC RADAR] Fresh Fruit Inbound: {len(report_items)} Consignment(s) | Manifest Attached"
     cards_html = ""
 
     for item in report_items:
         containers_blocks = ""
         for c in item["containers_detail"]:
             ldb_link = f"https://ldb.co.in/ldb/containersearch/39/{c['cntr']}"
-            status_color = "#d93025" if "CFS OUT" in c["latest_milestone"] else ("#f9ab00" if "PRE-ARRIVAL" in c["latest_milestone"] else "#137333")
+            is_pre_arrival = "SAILING" in c["latest_milestone"]
+            status_color = "#f9ab00" if is_pre_arrival else ("#d93025" if "CFS OUT" in c["latest_milestone"] else "#137333")
 
             containers_blocks += f"""
             <div style="background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 12px; padding: 14px; border-left: 5px solid {status_color};">
@@ -403,13 +412,13 @@ def send_container_wise_intelligence_email(report_items):
                         <a href="{ldb_link}" target="_blank" style="text-decoration: none; color: #1a73e8;">{c['cntr']}</a>
                     </span>
                     <span style="float: right; background-color: #f1f3f4; color: #202124; padding: 2px 7px; border-radius: 4px; font-size: 12px; font-weight: bold;">
-                        ISO: {c['iso']} | {c['temp']}°C
+                        ISO: {c['iso']} | {c['temp']}°C | Wt: {c['weight']} KGS
                     </span>
                 </div>
                 <table style="width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.5;">
                     <tr><td style="color: #5f6368; width: 32%;"><strong>Port Discharge:</strong></td><td>{c['port_in']}</td></tr>
                     <tr><td style="color: #5f6368;"><strong>Port Gate OUT:</strong></td><td>{c['port_out']}</td></tr>
-                    <tr><td style="color: #5f6368;"><strong>Nominated CFS Yard:</strong></td><td><strong>{c['cfs_name']}</strong></td></tr>
+                    <tr><td style="color: #5f6368;"><strong>Nominated CFS Yard:</strong></td><td><strong>{c['cfs_name']}</strong> (Client: {c['client_code']})</td></tr>
                     <tr><td style="color: #5f6368;"><strong>Current Movement:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['latest_milestone']}</td></tr>
                     <tr><td style="color: #5f6368;"><strong>APMC Pressure:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['market_pressure']}</td></tr>
                 </table>
@@ -423,12 +432,12 @@ def send_container_wise_intelligence_email(report_items):
                 <span style="float: right; background-color: #e8f0fe; color: #1a73e8; padding: 3px 9px; border-radius: 4px; font-size: 12px; font-weight: bold;">{item['line']}</span>
             </div>
             <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; margin-bottom: 14px;">
-                <tr><td style="color: #5f6368; width: 30%;"><strong>Fruit Cargo:</strong></td><td style="color: #d93025; font-weight: bold;">{item['fruit']}</td></tr>
-                <tr><td style="color: #5f6368;"><strong>Packaging / Invoices:</strong></td><td><strong>{item['cartons']}</strong> | Inv: {item['invoices']}</td></tr>
-                <tr><td style="color: #5f6368;"><strong>Vessel & Voyage:</strong></td><td>{item['vessel']} ({item['voyage']}) &bull; Terminal: <strong>{item['terminal']}</strong></td></tr>
+                <tr><td style="color: #5f6368; width: 30%;"><strong>Fruit Category:</strong></td><td style="color: #d93025; font-weight: bold;">{item['fruit']} ({item['temp_range']})</td></tr>
+                <tr><td style="color: #5f6368;"><strong>Consignment Volume:</strong></td><td><strong>{item['cartons']}</strong> | Total Boxes: {len(item['containers_detail'])} Reefer(s)</td></tr>
+                <tr><td style="color: #5f6368;"><strong>Vessel & Voyage:</strong></td><td>{item['vessel']} ({item['voyage']}) &bull; Scheduled Terminal: <strong>{item['terminal']}</strong></td></tr>
                 <tr><td style="color: #5f6368;"><strong>Port of Loading:</strong></td><td>{item['pol']}</td></tr>
             </table>
-            <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #202124;">Container Movement Breakdown:</div>
+            <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #202124;">Physical Movement Breakdown:</div>
             {containers_blocks}
         </div>
         """
@@ -440,9 +449,12 @@ def send_container_wise_intelligence_email(report_items):
         <div style="max-width: 720px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #dadce0; overflow: hidden;">
             <div style="background-color: #1a73e8; color: white; padding: 20px 24px;">
                 <h2 style="margin: 0; font-size: 20px;">🍎 JNCH Fresh Fruit Import Intelligence Audit</h2>
-                <p style="margin: 4px 0 0 0; font-size: 13px; opacity: 0.95;">Automated Container Tracking & Vashi APMC Timing Briefing</p>
+                <p style="margin: 4px 0 0 0; font-size: 13px; opacity: 0.95;">Advance Produce Radar & Bull/Bear Supply Warning for Vashi APMC</p>
             </div>
             <div style="padding: 20px;">
+                <div style="background-color: #e8f0fe; border-left: 4px solid #1a73e8; padding: 12px 16px; border-radius: 4px; margin-bottom: 20px; font-size: 13px;">
+                    <strong>📎 Attached File:</strong> The complete filtered reefer manifest spreadsheet is attached below for reference.
+                </div>
                 {cards_html}
                 <div style="text-align: center; margin-top: 20px; font-size: 11px; color: #80868b; border-top: 1px solid #f1f3f4; padding-top: 15px;">
                     Automated JNCH Reefer Intelligence &bull; Continuous Polling via Cloud Actions
@@ -453,17 +465,25 @@ def send_container_wise_intelligence_email(report_items):
     </html>
     """
 
-    msg = MIMEMultipart("alternative")
+    msg = MIMEMultipart()
     msg["Subject"] = subject
     msg["From"] = GMAIL_SENDER
     msg["To"] = ALERT_RECEIVER
     msg.attach(MIMEText(html, "html"))
 
+    if attached_excel_path and os.path.exists(attached_excel_path):
+        part = MIMEBase("application", "octet-stream")
+        with open(attached_excel_path, "rb") as attachment:
+            part.set_payload(attachment.read())
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(attached_excel_path)}")
+        msg.attach(part)
+
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(GMAIL_SENDER, GMAIL_APP_PASSWORD)
             server.sendmail(GMAIL_SENDER, ALERT_RECEIVER, msg.as_string())
-        print(f"[+] Detailed container intelligence email delivered to {ALERT_RECEIVER}!")
+        print(f"[+] Detailed container intelligence email (with Excel attachment) delivered to {ALERT_RECEIVER}!")
     except Exception as e:
         print(f"[!] Email dispatch error: {e}")
 
@@ -519,6 +539,19 @@ async def run_tracker():
         except Exception as e:
             print(f"[!] Failed to scrape DPD listings: {e}")
 
+        # Check local sandbox manifests directory as well
+        local_files = [os.path.join(DOWNLOAD_DIR, f) for f in os.listdir(DOWNLOAD_DIR) if f.endswith(('.xlsx', '.xls'))]
+        for lf in local_files:
+            base_n = os.path.basename(lf)
+            if not any(base_n in str(getattr(df, 'filename', '')) for df in all_reefers):
+                parts = base_n.replace(".xlsx", "").replace(".xls", "").split("_")
+                l_cand = parts[0] if len(parts) > 0 else "UNKNOWN"
+                v_cand = parts[1] if len(parts) > 1 else "UNKNOWN"
+                voy_cand = parts[2] if len(parts) > 2 else "1"
+                found = parse_fresh_fruit_reefers(lf, l_cand, v_cand, voy_cand)
+                if found is not None and not found.empty:
+                    all_reefers.append(found)
+
         if all_reefers:
             master_df = pd.concat(all_reefers, ignore_index=True)
             new_reefers = master_df[~master_df["_CNTR"].isin(seen_cntrs)].copy()
@@ -527,54 +560,69 @@ async def run_tracker():
                 print(f"\n[***] Discovered {len(new_reefers)} NEW reefer(s). Starting Intelligence Pipeline...")
                 report_items = []
 
+                # Export filtered fresh reefers to Excel for email attachment
+                timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                attached_excel = os.path.join(PROCESSED_EXPORTS, f"JNCH_Fresh_Fruit_Reefers_{timestamp_str}.xlsx")
+                new_reefers.to_excel(attached_excel, index=False)
+
                 grouped = new_reefers.groupby(["_VESSEL", "_VOYAGE", "_LINE"])
 
                 for (vessel, voyage, line), group in grouped:
                     sample_cntr = group.iloc[0]["_CNTR"]
                     term_hint = group.iloc[0]["_TERMINAL"]
                     pol_val = group.iloc[0]["_POL"]
-                    manifest_bl = group.iloc[0].get("_MANIFEST_BL", "NOT_FOUND")
+                    manifest_bl = group.iloc[0].get("_MANIFEST_BL", "DIRECT_SEARCH_REQUIRED")
 
                     print(f"\n[*] Resolving Master B/L for consignment {vessel} ({sample_cntr})...")
-                    
-                    # 1. Try Terminal Cascade
-                    master_bl, active_terminal = await cascade_resolve_master_bl(page, sample_cntr, term_hint)
-                    
-                    # 2. Fallback to Manifest B/L if vessel hasn't berthed yet
+                    master_bl = None
+                    active_terminal = term_hint
+
+                    if manifest_bl not in ["DIRECT_SEARCH_REQUIRED", "nan", "None", ""]:
+                        master_bl = manifest_bl
+                        print(f"    -> Direct B/L from manifest: {master_bl}")
+                    else:
+                        master_bl, found_term = await cascade_resolve_master_bl(page, sample_cntr, term_hint)
+                        if found_term:
+                            active_terminal = found_term
+
                     if not master_bl:
-                        if manifest_bl not in ["NOT_FOUND", "nan", "None", ""]:
-                            master_bl = manifest_bl
-                            active_terminal = term_hint
-                            print(f"    -> Extracted B/L directly from Advance Manifest: {master_bl}")
-                        else:
-                            master_bl = f"PENDING BERTH (Vessel {vessel} in transit)"
-                            active_terminal = term_hint
-                            print(f"    -> Vessel not yet berthed at {active_terminal}. B/L pending discharge.")
+                        master_bl = f"ADVANCE FILING (Pending Vessel Discharge at {active_terminal})"
+                        print(f"    -> Vessel at sea. Master B/L scheduled for release upon berthing.")
 
                     # Query Customs ICEGATE
                     icegate_data = await scrape_icegate(page, master_bl)
 
-                    # Inspect individual container physical status
+                    # Gather container details
                     containers_detail = []
+                    temps = []
                     for _, row in group.iterrows():
                         cntr = row["_CNTR"]
                         grp_cfs = row["_GROUP_CFS"]
                         temp_val = row["_TEMP"]
                         iso_val = row["_ISO"]
+                        wt_val = row["_WEIGHT"]
+                        cl_val = row["_CLIENT_CODE"]
 
-                        print(f"    [*] Fetching Live LDB Status for {cntr}...")
+                        if temp_val != "N/A":
+                            temps.append(temp_val)
+
+                        print(f"    [*] Fetching Physical Status for {cntr}...")
                         ldb = await scrape_ldb_live_status(page, cntr, grp_cfs)
 
                         containers_detail.append({
                             "cntr": cntr,
                             "iso": iso_val,
                             "temp": temp_val,
+                            "weight": wt_val,
+                            "client_code": cl_val,
                             "port_in": ldb["port_in_time"],
                             "port_out": ldb["port_out_time"],
                             "cfs_name": ldb["cfs_name"],
                             "latest_milestone": ldb["latest_milestone"],
                             "market_pressure": ldb["market_pressure"]
                         })
+
+                    temp_range_str = f"Setpoints: {', '.join(sorted(list(set(temps))))}°C" if temps else "Refrigerated (+1°C to +6°C)"
 
                     report_items.append({
                         "master_bl": master_bl,
@@ -585,22 +633,67 @@ async def run_tracker():
                         "terminal": active_terminal,
                         "fruit": icegate_data["fruit"],
                         "cartons": icegate_data["cartons"],
-                        "invoices": icegate_data["invoices"],
+                        "temp_range": temp_range_str,
                         "containers_detail": containers_detail
                     })
 
+                # --- 1. Export Consolidated JSON State for dashboard.html ---
+                dashboard_state = {
+                    "last_updated": datetime.now().strftime("%d-%b-%Y %H:%M IST"),
+                    "summary": {
+                        "total_active_reefers": len(new_reefers),
+                        "sailing_inbound": sum(1 for item in report_items for c in item["containers_detail"] if "SAILING" in c["latest_milestone"] or "PENDING" in c["port_in"]),
+                        "holding_at_cfs": sum(1 for item in report_items for c in item["containers_detail"] if "CFS IN" in c["latest_milestone"]),
+                        "dispatched_to_apmc": sum(1 for item in report_items for c in item["containers_detail"] if "CFS OUT" in c["latest_milestone"])
+                    },
+                    "consignments": [
+                        {
+                            "vessel": item["vessel"],
+                            "voyage": item["voyage"],
+                            "line": item["line"],
+                            "terminal": item["terminal"],
+                            "pol": item["pol"],
+                            "master_bl": item["master_bl"],
+                            "commodity": item["fruit"],
+                            "status": "SAILING IN-TRANSIT" if any("SAILING" in c["latest_milestone"] for c in item["containers_detail"]) else "DISCHARGED & CLEARING",
+                            "containers": [
+                                {
+                                    "container_no": c["cntr"],
+                                    "iso": c["iso"],
+                                    "temp": f"{c['temp']}°C" if not str(c['temp']).endswith('°C') else c['temp'],
+                                    "gross_wt": f"{c['weight']} KGS",
+                                    "cfs_yard": c["cfs_name"],
+                                    "client_code": c["client_code"],
+                                    "port_in": c["port_in"],
+                                    "port_out": c["port_out"],
+                                    "cfs_status": c["latest_milestone"],
+                                    "apmc_pressure": c["market_pressure"]
+                                }
+                                for c in item["containers_detail"]
+                            ]
+                        }
+                        for item in report_items
+                    ]
+                }
+
+                with open(TRACKER_STATE_JSON, "w", encoding="utf-8") as f:
+                    json.dump(dashboard_state, f, indent=2)
+                print(f"[+] Synced live state to {TRACKER_STATE_JSON}")
+
+                # --- 2. Persist CSV Log ---
                 if os.path.exists(MASTER_LOG_PATH):
                     existing = pd.read_csv(MASTER_LOG_PATH)
                     pd.concat([existing, new_reefers]).drop_duplicates(subset=["_CNTR"]).to_csv(MASTER_LOG_PATH, index=False)
                 else:
                     new_reefers.to_csv(MASTER_LOG_PATH, index=False)
 
-                send_container_wise_intelligence_email(report_items)
+                # --- 3. Send Email Alert ---
+                send_container_wise_intelligence_email(report_items, attached_excel)
                 mark_containers_seen(new_reefers["_CNTR"].tolist())
             else:
                 print("[*] All detected reefers have already been processed.")
         else:
-            print("[-] Scan complete. No active fresh fruit reefers found in recent filings.")
+            print("[-] Scan complete. No active fresh fruit reefers found.")
 
         await browser.close()
 
