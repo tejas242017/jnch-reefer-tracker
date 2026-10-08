@@ -258,15 +258,16 @@ async def scrape_icegate_detailed(page, master_bl):
 
         # Select Port INNSA1
         loc_box = page.locator("ng-select input").first
-        await loc_box.click()
-        await loc_box.fill("INNSA1")
-        await page.wait_for_timeout(600)
-        opt = page.locator("div.ng-option, span.ng-option-label").first
-        if await opt.count() > 0:
-            await opt.click()
-        else:
-            await page.keyboard.press("Enter")
-        await page.wait_for_timeout(600)
+        if await loc_box.count() > 0:
+            await loc_box.click(timeout=6000)
+            await loc_box.fill("INNSA1")
+            await page.wait_for_timeout(600)
+            opt = page.locator("div.ng-option, span.ng-option-label").first
+            if await opt.count() > 0:
+                await opt.click()
+            else:
+                await page.keyboard.press("Enter")
+            await page.wait_for_timeout(600)
 
         # Fill Master B/L
         bl_box = page.locator("input[placeholder*='Enter Master BL']").first
@@ -625,7 +626,7 @@ async def run_tracker():
                         "market_pressure": ldb["market_pressure"]
                     })
 
-                temp_range_str = f"Setpoints: {', '.join(sorted(list(set(temps))))}°C" if temps else "Refrigerated"
+                temp_range_str = f"Setpoints: {', '.join(sorted(list(set(str(t) for t in temps))))}°C" if temps else "Refrigerated"
 
                 report_items.append({
                     "master_bl": master_bl,
