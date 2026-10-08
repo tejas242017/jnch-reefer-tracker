@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JNCH Reefer Intelligence Hub &bull; Vashi APMC Radar</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen">
+
+  <!-- Top Navigation Bar -->
+  <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex flex-wrap justify-between items-center sticky top-0 z-30">
+    <div class="flex items-center space-x-3">
+      <div class="bg-blue-600 p-2.5 rounded-lg text-white font-bold text-xl">
+        <i class="fa-solid fa-snowflake"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold tracking-tight text-white">JNCH REEFER RADAR & APMC INTELLIGENCE</h1>
+        <p class="text-xs text-slate-400">Nhava Sheva Inbound Fruit Pipeline &bull; Cold-Chain Yard Inventory</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-4 mt-3 sm:mt-0">
+      <span id="lastUpdatedBadge" class="bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600">
+        <i class="fa-regular fa-clock mr-1"></i> Syncing live feed...
+      </span>
+      <button onclick="loadLiveData()" class="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3.5 py-1.5 rounded-md font-semibold transition">
+        <i class="fa-solid fa-rotate mr-1"></i> Refresh
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+    <!-- KPI Metric Cards -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm">
+        <div class="flex justify-between items-center">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active Produce Reefers</span>
+          <span class="text-blue-400 bg-blue-950 p-2 rounded-lg text-sm"><i class="fa-solid fa-boxes-stacked"></i></span>
+        </div>
+        <div id="statTotal" class="text-2xl font-bold text-white mt-2">--</div>
+        <div class="text-xs text-slate-400 mt-1">Temperature Set: +1.0°C to +6.5°C</div>
+      </div>
+
+      <div class="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm">
+        <div class="flex justify-between items-center">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Advance Sailing (At Sea)</span>
+          <span class="text-amber-400 bg-amber-950 p-2 rounded-lg text-sm"><i class="fa-solid fa-ship"></i></span>
+        </div>
+        <div id="statSailing" class="text-2xl font-bold text-amber-400 mt-2">--</div>
+        <div class="text-xs text-slate-400 mt-1">ETA Nhava Sheva: 24 to 72 Hours</div>
+      </div>
+
+      <div class="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm">
+        <div class="flex justify-between items-center">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Holding at CFS Yards</span>
+          <span class="text-emerald-400 bg-emerald-950 p-2 rounded-lg text-sm"><i class="fa-solid fa-warehouse"></i></span>
+        </div>
+        <div id="statHolding" class="text-2xl font-bold text-emerald-400 mt-2">--</div>
+        <div class="text-xs text-slate-400 mt-1">Plugged in under PQ / Customs inspection</div>
+      </div>
+
+      <div class="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-sm">
+        <div class="flex justify-between items-center">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Dispatched / APMC Inbound</span>
+          <span class="text-rose-400 bg-rose-950 p-2 rounded-lg text-sm"><i class="fa-solid fa-truck-fast"></i></span>
+        </div>
+        <div id="statDispatched" class="text-2xl font-bold text-rose-400 mt-2">--</div>
+        <div class="text-xs text-slate-400 mt-1">CFS OUT cleared &bull; Market arrival imminent</div>
+      </div>
+    </section>
+
+    <!-- Visual Distribution Chart & APMC Warning -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="bg-slate-800 border border-slate-700 p-5 rounded-xl lg:col-span-1 flex flex-col justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-white uppercase tracking-wider mb-2">CFS Yard Distribution</h2>
+          <p class="text-xs text-slate-400 mb-4">Reefer volume by nominated cold store</p>
+          <div class="h-48 relative flex items-center justify-center">
+            <canvas id="cfsYardChart"></canvas>
+          </div>
+        </div>
+        <div id="yardLegend" class="mt-4 text-xs space-y-1.5 border-t border-slate-700 pt-3"></div>
+      </div>
+
+      <div class="bg-slate-800 border border-slate-700 p-5 rounded-xl lg:col-span-2">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-700 pb-3">
+          <div>
+            <h2 class="text-sm font-bold text-white uppercase tracking-wider">Vashi APMC Wholesale Supply Outlook</h2>
+            <p class="text-xs text-slate-400">Automated volume timing analysis</p>
+          </div>
+          <span class="bg-amber-900/60 text-amber-300 text-xs font-semibold px-2.5 py-1 rounded border border-amber-700">
+            <i class="fa-solid fa-triangle-exclamation mr-1"></i> Supply Surge Monitor
+          </span>
+        </div>
+        <div class="space-y-3 text-xs leading-relaxed">
+          <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
+            <span class="font-bold text-rose-400 uppercase">Immediate Market Arrivals:</span>
+            <p class="text-slate-300 mt-0.5">2 containers (Fresh Mandarins &bull; ~4,200 cartons) evacuated via <strong>CFS OUT on 07-Oct-2026</strong> from Ameya Logistics CFS. Fruit is landing on wholesale trading floors today. Expected downward pressure on spot quotes.</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
+            <span class="font-bold text-emerald-400 uppercase">Plugged In Holding (Ameya CFS):</span>
+            <p class="text-slate-300 mt-0.5">Container <strong>BMOU9286052</strong> entered Ameya CFS on 02-Oct 23:02 IST. It remains plugged in under Plant Quarantine (PQ) hold. No gate-out recorded yet.</p>
+          </div>
+          <div class="bg-slate-900/80 p-3 rounded-lg border border-slate-700">
+            <span class="font-bold text-amber-400 uppercase">Advance Water Inbound (ONE / HMM TACOMA):</span>
+            <p class="text-slate-300 mt-0.5">4 containers (~2,800 cartons equivalent) sailing inbound for GTI / APM Terminals. Routed to GDL CFS (1 box), Ameya CFS (2 boxes), and Allcargo CFS (1 box). Estimated berthing within 48 to 72 hours.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Live Container-Wise Operational Table -->
+    <section class="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-sm">
+      <div class="px-6 py-4 border-b border-slate-700 flex flex-wrap justify-between items-center">
+        <div>
+          <h2 class="text-base font-bold text-white">Live Inbound & CFS Inventory Registry</h2>
+          <p class="text-xs text-slate-400">Extracted from DPD Manifests, Terminal Cascades, and LDB Gate Events</p>
+        </div>
+        <div class="mt-2 sm:mt-0">
+          <input type="text" id="filterInput" onkeyup="filterTable()" placeholder="Search container, vessel, CFS..." 
+                 class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-3 py-1.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="bg-slate-900/90 text-slate-400 uppercase tracking-wider border-b border-slate-700 font-semibold">
+              <th class="py-3 px-4">Container No</th>
+              <th class="py-3 px-4">Vessel / Line</th>
+              <th class="py-3 px-4">ISO & Temp</th>
+              <th class="py-3 px-4">Gross Wt</th>
+              <th class="py-3 px-4">CFS Cold Store</th>
+              <th class="py-3 px-4">Port Evacuation</th>
+              <th class="py-3 px-4">Latest Milestone</th>
+              <th class="py-3 px-4">APMC Status</th>
+            </tr>
+          </thead>
+          <tbody id="containerTableBody" class="divide-y divide-slate-700/60">
+            <!-- Populated dynamically via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Historical B/L Vault & Trade Intelligence Ingest -->
+    <section class="bg-slate-800 border border-slate-700 rounded-xl p-6">
+      <div class="flex items-center justify-between border-b border-slate-700 pb-3 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-white">Historical B/L Vault & Importer Intelligence</h2>
+          <p class="text-xs text-slate-400">Drag and drop previous customs manifests or trade databases (Cybex / Zauba / ICEGATE)</p>
+        </div>
+        <span class="text-xs text-slate-400"><i class="fa-solid fa-database mr-1"></i> Local Offline Parser</span>
+      </div>
+
+      <div id="dropZone" class="border-2 border-dashed border-slate-600 hover:border-blue-500 rounded-xl p-6 text-center cursor-pointer transition bg-slate-900/40">
+        <i class="fa-solid fa-file-csv text-3xl text-slate-500 mb-2"></i>
+        <p class="text-xs font-semibold text-slate-300">Drop previous B/L export (.csv or .xlsx) here to analyze</p>
+        <p class="text-[11px] text-slate-500 mt-1">Columns parsed: BL_Number, Container_No, Vessel, Commodity, POL, Assessable_Value, Consignee</p>
+      </div>
+
+      <div id="historicalPreview" class="hidden mt-4 text-xs">
+        <div class="flex justify-between items-center mb-2">
+          <span class="font-bold text-slate-300">Parsed Historical Consignments</span>
+          <span id="historicalCount" class="text-slate-400"></span>
+        </div>
+        <div class="overflow-x-auto bg-slate-900 rounded-lg p-2 border border-slate-700 max-h-56">
+          <table class="w-full text-left text-[11px]" id="historicalTable"></table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    let yardChartInstance = null;
+
+    async function loadLiveData() {
+      try {
+        const response = await fetch('data/tracker_state.json');
+        if (!response.ok) throw new Error("Local tracker_state.json not accessible");
+        const data = await response.json();
+        renderDashboard(data);
+      } catch (err) {
+        console.warn("Falling back to embedded snapshot:", err);
+        renderDashboard(getFallbackData());
+      }
+    }
+
+    function renderDashboard(data) {
+      document.getElementById('lastUpdatedBadge').innerHTML = `<i class="fa-regular fa-clock mr-1"></i> Updated: ${data.last_updated}`;
+      document.getElementById('statTotal').innerText = data.summary.total_active_reefers;
+      document.getElementById('statSailing').innerText = data.summary.sailing_inbound;
+      document.getElementById('statHolding').innerText = data.summary.holding_at_cfs;
+      document.getElementById('statDispatched').innerText = data.summary.dispatched_to_apmc;
+
+      const tbody = document.getElementById('containerTableBody');
+      tbody.innerHTML = '';
+
+      const yardCounts = {};
+
+      data.consignments.forEach(c => {
+        c.containers.forEach(cntr => {
+          yardCounts[cntr.cfs_yard] = (yardCounts[cntr.cfs_yard] || 0) + 1;
+
+          let badgeColor = "bg-amber-950 text-amber-400 border border-amber-800";
+          if (cntr.cfs_status.includes("CFS OUT")) badgeColor = "bg-rose-950 text-rose-400 border border-rose-800";
+          if (cntr.cfs_status.includes("CFS IN")) badgeColor = "bg-emerald-950 text-emerald-400 border border-emerald-800";
+
+          const tr = document.createElement('tr');
+          tr.className = "hover:bg-slate-750 transition";
+          tr.innerHTML = `
+            <td class="py-3 px-4 font-mono font-bold text-blue-400">
+              <a href="https://ldb.co.in/ldb/containersearch/39/${cntr.container_no}" target="_blank" class="hover:underline">${cntr.container_no}</a>
+            </td>
+            <td class="py-3 px-4">
+              <div class="font-semibold text-slate-200">${c.vessel} (${c.voyage})</div>
+              <div class="text-[11px] text-slate-400">${c.line}</div>
+            </td>
+            <td class="py-3 px-4">
+              <span class="bg-slate-700 text-slate-200 px-2 py-0.5 rounded text-[11px] font-mono">${cntr.iso}</span>
+              <span class="font-bold text-slate-300 ml-1">${cntr.temp}</span>
+            </td>
+            <td class="py-3 px-4 font-mono text-slate-300">${cntr.gross_wt}</td>
+            <td class="py-3 px-4 font-semibold text-slate-300">
+              ${cntr.cfs_yard}
+              <span class="text-[10px] text-slate-500 block">Client: ${cntr.client_code}</span>
+            </td>
+            <td class="py-3 px-4 text-slate-400 font-mono text-[11px]">${cntr.port_out}</td>
+            <td class="py-3 px-4">
+              <span class="px-2.5 py-1 rounded text-[11px] font-bold ${badgeColor}">
+                ${cntr.cfs_status}
+              </span>
+            </td>
+            <td class="py-3 px-4 text-[11px] font-medium text-slate-300">${cntr.apmc_pressure}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      });
+
+      renderChart(yardCounts);
+    }
+
+    function renderChart(yardCounts) {
+      const ctx = document.getElementById('cfsYardChart').getContext('2d');
+      const labels = Object.keys(yardCounts);
+      const values = Object.values(yardCounts);
+
+      if (yardChartInstance) yardChartInstance.destroy();
+
+      yardChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: values,
+            backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'],
+            borderColor: '#1e293b',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          cutout: '70%'
+        }
+      });
+
+      const legend = document.getElementById('yardLegend');
+      legend.innerHTML = labels.map((l, i) => `
+        <div class="flex justify-between items-center">
+          <span class="flex items-center">
+            <span class="w-2.5 h-2.5 rounded-full mr-2" style="background-color: ${yardChartInstance.data.datasets[0].backgroundColor[i]}"></span>
+            ${l}
+          </span>
+          <span class="font-mono font-bold text-slate-200">${values[i]} boxes</span>
+        </div>
+      `).join('');
+    }
+
+    function filterTable() {
+      const q = document.getElementById('filterInput').value.toUpperCase();
+      const rows = document.getElementById('containerTableBody').getElementsByTagName('tr');
+      for (let r of rows) {
+        r.style.display = r.innerText.toUpperCase().includes(q) ? '' : 'none';
+      }
+    }
+
+    function getFallbackData() {
+      return {
+        "last_updated": "08-Oct-2026 10:00 IST (Static)",
+        "summary": { "total_active_reefers": 7, "sailing_inbound": 4, "holding_at_cfs": 1, "dispatched_to_apmc": 2 },
+        "consignments": [
+          {
+            "vessel": "HMM TACOMA", "voyage": "139", "line": "ONE Line",
+            "containers": [
+              { "container_no": "ONEU8007230", "iso": "2230", "temp": "5.0°C", "gross_wt": "8,060 KGS", "cfs_yard": "Gateway Distriparks (GDL) CFS", "client_code": "34Y", "port_out": "PENDING DISCHARGE", "cfs_status": "SAILING IN-TRANSIT", "apmc_pressure": "INBOUND WATER TRANSIT" },
+              { "container_no": "ONEU8033542", "iso": "2230", "temp": "5.0°C", "gross_wt": "10,461 KGS", "cfs_yard": "Ameya Logistics CFS", "client_code": "13Q", "port_out": "PENDING DISCHARGE", "cfs_status": "SAILING IN-TRANSIT", "apmc_pressure": "INBOUND WATER TRANSIT" },
+              { "container_no": "ONEU9269996", "iso": "4530", "temp": "4.0°C", "gross_wt": "10,549 KGS", "cfs_yard": "Ameya Logistics CFS", "client_code": "SN1", "port_out": "PENDING DISCHARGE", "cfs_status": "SAILING IN-TRANSIT", "apmc_pressure": "INBOUND WATER TRANSIT" },
+              { "container_no": "OTPU6475616", "iso": "4530", "temp": "3.0°C", "gross_wt": "25,137 KGS", "cfs_yard": "Allcargo Logistics CFS", "client_code": "4GU", "port_out": "PENDING DISCHARGE", "cfs_status": "SAILING IN-TRANSIT", "apmc_pressure": "INBOUND WATER TRANSIT" }
+            ]
+          },
+          {
+            "vessel": "MSC BARBARA", "voyage": "ZF634R", "line": "MSC",
+            "containers": [
+              { "container_no": "MEDU9839122", "iso": "4532", "temp": "2.0°C", "gross_wt": "29,070 KGS", "cfs_yard": "Ameya Logistics CFS", "client_code": "4QF", "port_out": "02-10-2026 15:22 IST", "cfs_status": "CFS OUT (07-Oct-2026)", "apmc_pressure": "APMC ARRIVED / DISPATCHED" },
+              { "container_no": "BMOU9286052", "iso": "4532", "temp": "2.0°C", "gross_wt": "28,380 KGS", "cfs_yard": "Ameya Logistics CFS", "client_code": "4QF", "port_out": "02-10-2026 21:56 IST", "cfs_status": "CFS IN (02-10-2026)", "apmc_pressure": "HOLDING AT CFS" },
+              { "container_no": "MEDU9895717", "iso": "4532", "temp": "2.0°C", "gross_wt": "28,560 KGS", "cfs_yard": "Ameya Logistics CFS", "client_code": "4QF", "port_out": "02-10-2026 15:22 IST", "cfs_status": "CFS OUT (07-Oct-2026)", "apmc_pressure": "APMC ARRIVED / DISPATCHED" }
+            ]
+          }
+        ]
+      };
+    }
+
+    window.onload = loadLiveData;
+  </script>
+</body>
+</html>

@@ -1,0 +1,119 @@
+{
+  "last_updated": "08-Oct-2026 10:00 IST",
+  "summary": {
+    "total_active_reefers": 7,
+    "sailing_inbound": 4,
+    "holding_at_cfs": 1,
+    "dispatched_to_apmc": 2
+  },
+  "consignments": [
+    {
+      "vessel": "HMM TACOMA",
+      "voyage": "139",
+      "line": "ONE Line",
+      "terminal": "GTI (APM Terminals)",
+      "pol": "East Asia",
+      "master_bl": "ADVANCE FILING (Pending Berth)",
+      "commodity": "Advance Fresh Produce",
+      "status": "SAILING IN-TRANSIT",
+      "containers": [
+        {
+          "container_no": "ONEU8007230",
+          "iso": "2230",
+          "temp": "5.0°C",
+          "gross_wt": "8,060 KGS",
+          "cfs_yard": "Gateway Distriparks (GDL) CFS",
+          "client_code": "34Y",
+          "port_in": "PENDING BERTH",
+          "port_out": "PENDING DISCHARGE",
+          "cfs_status": "SAILING IN-TRANSIT",
+          "apmc_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
+        },
+        {
+          "container_no": "ONEU8033542",
+          "iso": "2230",
+          "temp": "5.0°C",
+          "gross_wt": "10,461 KGS",
+          "cfs_yard": "Ameya Logistics CFS",
+          "client_code": "13Q",
+          "port_in": "PENDING BERTH",
+          "port_out": "PENDING DISCHARGE",
+          "cfs_status": "SAILING IN-TRANSIT",
+          "apmc_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
+        },
+        {
+          "container_no": "ONEU9269996",
+          "iso": "4530",
+          "temp": "4.0°C",
+          "gross_wt": "10,549 KGS",
+          "cfs_yard": "Ameya Logistics CFS",
+          "client_code": "SN1",
+          "port_in": "PENDING BERTH",
+          "port_out": "PENDING DISCHARGE",
+          "cfs_status": "SAILING IN-TRANSIT",
+          "apmc_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
+        },
+        {
+          "container_no": "OTPU6475616",
+          "iso": "4530",
+          "temp": "3.0°C",
+          "gross_wt": "25,137 KGS",
+          "cfs_yard": "Allcargo Logistics CFS",
+          "client_code": "4GU",
+          "port_in": "PENDING BERTH",
+          "port_out": "PENDING DISCHARGE",
+          "cfs_status": "SAILING IN-TRANSIT",
+          "apmc_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
+        }
+      ]
+    },
+    {
+      "vessel": "MSC BARBARA",
+      "voyage": "ZF634R",
+      "line": "MSC",
+      "terminal": "BMCT (PSA Mumbai)",
+      "pol": "Durban, South Africa (ZA)",
+      "master_bl": "MEDUW5386315",
+      "commodity": "Fresh Mandarins (6,296 Cartons)",
+      "status": "DISCHARGED & CLEARING",
+      "containers": [
+        {
+          "container_no": "MEDU9839122",
+          "iso": "4532",
+          "temp": "2.0°C",
+          "gross_wt": "29,070 KGS",
+          "cfs_yard": "Ameya Logistics CFS",
+          "client_code": "4QF",
+          "port_in": "02-10-2026 00:35:29 IST",
+          "port_out": "02-10-2026 15:22:10 IST",
+          "cfs_status": "CFS OUT (07-Oct-2026)",
+          "apmc_pressure": "APMC ARRIVED / DISPATCHED"
+        },
+        {
+          "container_no": "BMOU9286052",
+          "iso": "4532",
+          "temp": "2.0°C",
+          "gross_wt": "28,380 KGS",
+          "cfs_yard": "Ameya Logistics CFS",
+          "client_code": "4QF",
+          "port_in": "02-10-2026 00:35:29 IST",
+          "port_out": "02-10-2026 21:56:35 IST",
+          "cfs_status": "CFS IN (02-10-2026 23:02:59 IST)",
+          "apmc_pressure": "HOLDING AT CFS (Customs / PQ Hold)"
+        },
+        {
+          "container_no": "MEDU9895717",
+          "iso": "4532",
+          "temp": "2.0°C",
+          "gross_wt": "28,560 KGS",
+          "cfs_yard": "Ameya Logistics CFS",
+          "client_code": "4QF",
+          "port_in": "02-10-2026 00:35:29 IST",
+          "port_out": "02-10-2026 15:22:10 IST",
+          "cfs_status": "CFS OUT (07-Oct-2026)",
+          "apmc_pressure": "APMC ARRIVED / DISPATCHED"
+        }
+      ]
+    }
+  ]
+}
