@@ -172,12 +172,12 @@ def parse_fresh_fruit_reefers(filepath, line, vessel, voyage):
 
 async def resolve_via_bmct(page, cntr_no):
     try:
-        await page.goto("https://india.globalpsa.com/container-tracking/", wait_until="networkidle", timeout=20000)
+        await page.goto("https://india.globalpsa.com/container-tracking/", wait_until="networkidle", timeout=15000)
         box = page.locator("input[type='text']").first
         if await box.count() > 0:
             await box.fill(cntr_no)
             await page.keyboard.press("Enter")
-            await page.wait_for_timeout(3500)
+            await page.wait_for_timeout(3000)
             text = await page.inner_text("body")
             bls = [m for m in re.findall(r'\b[A-Z]{4}[0-9A-Z]{7,12}\b', text) if m != cntr_no and not m.startswith("INNSA")]
             if bls:
@@ -188,13 +188,13 @@ async def resolve_via_bmct(page, cntr_no):
 
 async def resolve_via_gti(page, cntr_no):
     try:
-        await page.goto("https://www.apmtmumbai.com/online-services/container-tracking", wait_until="domcontentloaded", timeout=20000)
-        await page.wait_for_timeout(2000)
+        await page.goto("https://www.apmtmumbai.com/online-services/container-tracking", wait_until="domcontentloaded", timeout=15000)
+        await page.wait_for_timeout(1500)
         box = page.locator("input[type='text']").first
         if await box.count() > 0:
             await box.fill(cntr_no)
             await page.keyboard.press("Enter")
-            await page.wait_for_timeout(3500)
+            await page.wait_for_timeout(3000)
             text = await page.inner_text("body")
             bls = [m for m in re.findall(r'\b[A-Z]{4}[0-9A-Z]{7,12}\b', text) if m != cntr_no and not m.startswith("INNSA")]
             if bls:
@@ -205,13 +205,13 @@ async def resolve_via_gti(page, cntr_no):
 
 async def resolve_via_dpworld(page, cntr_no):
     try:
-        await page.goto("https://www.dpworld.com/nhava-sheva", wait_until="domcontentloaded", timeout=20000)
-        await page.wait_for_timeout(2000)
+        await page.goto("https://www.dpworld.com/nhava-sheva", wait_until="domcontentloaded", timeout=15000)
+        await page.wait_for_timeout(1500)
         box = page.locator("input[placeholder*='Container']").first
         if await box.count() > 0:
             await box.fill(cntr_no)
             await page.keyboard.press("Enter")
-            await page.wait_for_timeout(3500)
+            await page.wait_for_timeout(3000)
             text = await page.inner_text("body")
             bls = [m for m in re.findall(r'\b[A-Z]{4}[0-9A-Z]{7,12}\b', text) if m != cntr_no and not m.startswith("INNSA")]
             if bls:
@@ -244,83 +244,70 @@ async def scrape_icegate_detailed(page, master_bl):
         "fruit": "Advance Produce Consignment",
         "cartons": "Refer Attached Manifest",
         "invoices": "Pending Filing",
-        "gross_wt": "N/A",
-        "sister_containers": []
+        "gross_wt": "N/A"
     }
-    if not master_bl or any(k in master_bl for k in ["DIRECT_SEARCH", "PENDING", "NOT_FOUND", "ADVANCE"]):
+    if not master_bl or any(k in master_bl for k in ["DIRECT_SEARCH", "PENDING", "NOT_FOUND", "ADVANCE", "EMTY"]):
         return data
 
     try:
         url = "https://foservices.icegate.gov.in/#/public-enquiries/document-status/sea-igm"
-        print(f"    [*] ICEGATE Step 1: Navigating to Sea-IGM Document Status for B/L {master_bl}...")
-        await page.goto(url, wait_until="networkidle", timeout=35000)
-        await page.wait_for_timeout(2000)
+        print(f"    [*] ICEGATE Step 1: Querying Sea-IGM for Master B/L {master_bl}...")
+        await page.goto(url, wait_until="networkidle", timeout=25000)
+        await page.wait_for_timeout(1500)
 
-        # Select Port INNSA1
         loc_box = page.locator("ng-select input").first
         if await loc_box.count() > 0:
-            await loc_box.click(timeout=6000)
+            await loc_box.click(timeout=5000)
             await loc_box.fill("INNSA1")
-            await page.wait_for_timeout(600)
+            await page.wait_for_timeout(500)
             opt = page.locator("div.ng-option, span.ng-option-label").first
             if await opt.count() > 0:
                 await opt.click()
             else:
                 await page.keyboard.press("Enter")
-            await page.wait_for_timeout(600)
+            await page.wait_for_timeout(500)
 
-        # Fill Master B/L
         bl_box = page.locator("input[placeholder*='Enter Master BL']").first
-        await bl_box.click()
-        await bl_box.fill(master_bl)
-        await page.wait_for_timeout(600)
+        if await bl_box.count() > 0:
+            await bl_box.click()
+            await bl_box.fill(master_bl)
+            await page.wait_for_timeout(500)
 
-        # Click Search
-        search_btn = page.locator("button:has-text('Search')").first
-        await search_btn.click()
-        await page.wait_for_timeout(4500)
+            search_btn = page.locator("button:has-text('Search')").first
+            await search_btn.click()
+            await page.wait_for_timeout(3500)
 
-        # Step 2: Open Content Modal / Detail Row (Click View icon)
-        view_btn = page.locator("table a:has-text('View'), table button:has-text('View'), table i.fa-eye, table a[title*='View']").first
-        if await view_btn.count() > 0:
-            print("    [*] ICEGATE Step 2: Clicking View icon to open Line Details screen...")
-            await view_btn.click()
-            await page.wait_for_timeout(3000)
+            view_btn = page.locator("table a:has-text('View'), table button:has-text('View'), table i.fa-eye").first
+            if await view_btn.count() > 0:
+                print("    [*] ICEGATE Step 2: Opening Line Details content screen...")
+                await view_btn.click()
+                await page.wait_for_timeout(2500)
 
-        # Step 3: Extract Cargo Content Screen
-        body_text = await page.inner_text("body")
-        for line in body_text.splitlines():
-            clean = line.strip()
-            clean_u = clean.upper()
-            if any(k in clean_u for k in ["MANDARIN", "DRAGON", "ORANGE", "APPLE", "PEAR", "KIWI", "GRAPE", "CITRUS", "FRUIT", "FRESH"]):
-                data["fruit"] = clean
-                print(f"    [+] ICEGATE Content Identified: {clean}")
+            body_text = await page.inner_text("body")
+            for line in body_text.splitlines():
+                clean = line.strip()
+                clean_u = clean.upper()
+                if any(k in clean_u for k in ["MANDARIN", "DRAGON", "ORANGE", "APPLE", "PEAR", "KIWI", "GRAPE", "CITRUS", "FRUIT", "FRESH"]):
+                    data["fruit"] = clean
+                    print(f"    [+] ICEGATE Content Verified: {clean}")
 
-                inv_matches = re.findall(r'INVOICE(?:\s+NO)?\s*[:\s]?\s*([A-Z0-9\-\/]+)', clean, re.IGNORECASE)
-                if inv_matches:
-                    data["invoices"] = ", ".join(inv_matches)
+                    inv_matches = re.findall(r'INVOICE(?:\s+NO)?\s*[:\s]?\s*([A-Z0-9\-\/]+)', clean, re.IGNORECASE)
+                    if inv_matches:
+                        data["invoices"] = ", ".join(inv_matches)
 
-                ctn_match = re.search(r'(\d+[\d,]*)\s*(?:CTN|CARTONS|BOXES|PKGS)', clean, re.IGNORECASE)
-                if ctn_match:
-                    data["cartons"] = f"{ctn_match.group(1)} Cartons"
+                    ctn_match = re.search(r'(\d+[\d,]*)\s*(?:CTN|CARTONS|BOXES|PKGS)', clean, re.IGNORECASE)
+                    if ctn_match:
+                        data["cartons"] = f"{ctn_match.group(1)} Cartons"
 
-                wt_match = re.search(r'([\d\.,]+)\s*KGS', clean, re.IGNORECASE)
-                if wt_match:
-                    data["gross_wt"] = f"{wt_match.group(1)} KGS"
-                break
-
-        # Check Container Details Tab
-        cntr_tab = page.locator("a:has-text('Container Details'), button:has-text('Container Details')").first
-        if await cntr_tab.count() > 0:
-            await cntr_tab.click()
-            await page.wait_for_timeout(2000)
-            modal_text = await page.inner_text("body")
-            data["sister_containers"] = sorted(list(set(re.findall(r'\b[A-Z]{4}\d{7}\b', modal_text))))
+                    wt_match = re.search(r'([\d\.,]+)\s*KGS', clean, re.IGNORECASE)
+                    if wt_match:
+                        data["gross_wt"] = f"{wt_match.group(1)} KGS"
+                    break
     except Exception as e:
-        print(f"    [!] ICEGATE Step notice for {master_bl}: {e}")
+        print(f"    [!] ICEGATE notice for {master_bl}: {e}")
     return data
 
-# --- LDB Timeline Scraper ---
+# --- LDB Timeline Scraper (For Berthed Cargo Only) ---
 
 async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
     resolved_cfs = CFS_NAME_MAP.get(manifest_group_code, manifest_group_code)
@@ -330,19 +317,19 @@ async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
         "port_out_time": "PENDING DISCHARGE",
         "cfs_in_time": "N/A",
         "cfs_out_time": "N/A",
-        "latest_milestone": "SAILING IN-TRANSIT (Pre-Berthing Advance Notice)",
-        "market_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
+        "latest_milestone": "DISCHARGED ON DOCK (Stage 1)",
+        "market_pressure": "QUAY DISCHARGE &bull; DRAYAGE TO CFS IMMINENT"
     }
     try:
         url = f"https://ldb.co.in/ldb/containersearch/39/{cntr_no}"
-        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-        await page.wait_for_timeout(2000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        await page.wait_for_timeout(1800)
 
         close_btn = page.locator("button.close, span:has-text('×'), button:has-text('×')").first
         if await close_btn.count() > 0 and await close_btn.is_visible():
             try:
-                await close_btn.click(timeout=1500)
-                await page.wait_for_timeout(500)
+                await close_btn.click(timeout=1000)
+                await page.wait_for_timeout(300)
             except Exception:
                 pass
 
@@ -375,22 +362,22 @@ async def scrape_ldb_live_status(page, cntr_no, manifest_group_code):
 
         if info["cfs_out_time"] != "N/A":
             info["latest_milestone"] = f"CFS OUT ({info['cfs_out_time']})"
-            info["market_pressure"] = "APMC ARRIVED / DISPATCHED"
+            info["market_pressure"] = "EN-ROUTE TURBHE &bull; VASHI SPOT SALES"
         elif info["cfs_in_time"] != "N/A":
             info["latest_milestone"] = f"CFS IN ({info['cfs_in_time']})"
             today_weekday = datetime.today().weekday()
             if today_weekday in [3, 4, 5]:
-                info["market_pressure"] = "HIGH MONDAY GLUT RISK (Holding at CFS)"
+                info["market_pressure"] = "HOLDING AT CFS &bull; MONDAY GLUT RISK"
             else:
-                info["market_pressure"] = "HOLDING AT CFS (Customs / PQ)"
+                info["market_pressure"] = "HOLDING AT CFS &bull; CUSTOMS/PQ EXAMINATION"
         elif info["port_out_time"] not in ["N/A", "PENDING DISCHARGE"]:
-            info["latest_milestone"] = f"PORT OUT ({info['port_out_time']}) -> Drayage to CFS"
-            info["market_pressure"] = "EVACUATING TO CFS"
+            info["latest_milestone"] = f"PORT OUT ({info['port_out_time']})"
+            info["market_pressure"] = "EVACUATING &bull; DRAYAGE TO CFS"
         elif info["port_in_time"] not in ["N/A", "PENDING BERTH"]:
             info["latest_milestone"] = f"DISCHARGED AT BERTH ({info['port_in_time']})"
-            info["market_pressure"] = "PORT TERMINAL DISCHARGE"
+            info["market_pressure"] = "QUAY DISCHARGE &bull; DRAYAGE IMMINENT"
     except Exception as e:
-        print(f"    [!] LDB check notice for {cntr_no}: {e}")
+        print(f"    [!] LDB notice for {cntr_no}: {e}")
     return info
 
 # --- Executive HTML Email Report ---
@@ -405,40 +392,55 @@ def send_container_wise_intelligence_email(report_items, attached_excel_path=Non
 
     for item in report_items:
         containers_blocks = ""
-        for c in item["containers_detail"]:
+        # Display up to 10 sample container cards per consignment to keep email render clean
+        sample_containers = item["containers_detail"][:10]
+        remaining = len(item["containers_detail"]) - len(sample_containers)
+
+        for c in sample_containers:
             ldb_link = f"https://ldb.co.in/ldb/containersearch/39/{c['cntr']}"
-            is_pre_arrival = "SAILING" in c["latest_milestone"]
-            status_color = "#f9ab00" if is_pre_arrival else ("#d93025" if "CFS OUT" in c["latest_milestone"] else "#137333")
+            if "CFS OUT" in c["latest_milestone"]:
+                status_color = "#10b981" # Green
+            elif "CFS IN" in c["latest_milestone"]:
+                status_color = "#ef4444" # Red
+            else:
+                status_color = "#3b82f6" # Blue
 
             containers_blocks += f"""
-            <div style="background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 12px; padding: 14px; border-left: 5px solid {status_color};">
-                <div style="border-bottom: 1px solid #f1f3f4; padding-bottom: 6px; margin-bottom: 8px;">
-                    <span style="font-size: 15px; font-weight: bold; font-family: monospace; color: #1a73e8;">
+            <div style="background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 10px; padding: 12px; border-left: 5px solid {status_color};">
+                <div style="border-bottom: 1px solid #f1f3f4; padding-bottom: 6px; margin-bottom: 6px;">
+                    <span style="font-size: 14px; font-weight: bold; font-family: monospace; color: #1a73e8;">
                         <a href="{ldb_link}" target="_blank" style="text-decoration: none; color: #1a73e8;">{c['cntr']}</a>
                     </span>
-                    <span style="float: right; background-color: #f1f3f4; color: #202124; padding: 2px 7px; border-radius: 4px; font-size: 12px; font-weight: bold;">
+                    <span style="float: right; background-color: #f1f3f4; color: #202124; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: bold;">
                         ISO: {c['iso']} | {c['temp']} | Wt: {c['weight']} KGS
                     </span>
                 </div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.5;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.4;">
                     <tr><td style="color: #5f6368; width: 32%;"><strong>Port Discharge:</strong></td><td>{c['port_in']}</td></tr>
                     <tr><td style="color: #5f6368;"><strong>Port Gate OUT:</strong></td><td>{c['port_out']}</td></tr>
                     <tr><td style="color: #5f6368;"><strong>Nominated CFS Yard:</strong></td><td><strong>{c['cfs_name']}</strong> (Client: {c['client_code']})</td></tr>
-                    <tr><td style="color: #5f6368;"><strong>Current Movement:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['latest_milestone']}</td></tr>
-                    <tr><td style="color: #5f6368;"><strong>APMC Pressure:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['market_pressure']}</td></tr>
+                    <tr><td style="color: #5f6368;"><strong>Operational Stage:</strong></td><td style="color: {status_color}; font-weight: bold;">{c['latest_milestone']}</td></tr>
+                    <tr><td style="color: #5f6368;"><strong>APMC Pressure:</strong></td><td>{c['market_pressure']}</td></tr>
                 </table>
+            </div>
+            """
+
+        if remaining > 0:
+            containers_blocks += f"""
+            <div style="text-align: center; font-size: 12px; color: #5f6368; padding: 8px; background: #f8f9fa; border-radius: 6px;">
+                + {remaining} additional containers under this B/L (All included in the attached Excel spreadsheet).
             </div>
             """
 
         cards_html += f"""
         <div style="background: #ffffff; border: 1px solid #dadce0; border-radius: 8px; margin-bottom: 24px; padding: 18px;">
             <div style="border-bottom: 2px solid #1a73e8; padding-bottom: 8px; margin-bottom: 12px;">
-                <span style="font-size: 17px; font-weight: bold; color: #1a73e8;">Master B/L: {item['master_bl']}</span>
+                <span style="font-size: 16px; font-weight: bold; color: #1a73e8;">Master B/L: {item['master_bl']}</span>
                 <span style="float: right; background-color: #e8f0fe; color: #1a73e8; padding: 3px 9px; border-radius: 4px; font-size: 12px; font-weight: bold;">{item['line']}</span>
             </div>
-            <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; margin-bottom: 14px;">
-                <tr><td style="color: #5f6368; width: 30%;"><strong>Fruit Content:</strong></td><td style="color: #d93025; font-weight: bold; font-size: 14px;">{item['fruit']} ({item['temp_range']})</td></tr>
-                <tr><td style="color: #5f6368;"><strong>Packaging & Invoices:</strong></td><td><strong>{item['cartons']}</strong> | Inv: {item['invoices']}</td></tr>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; margin-bottom: 12px;">
+                <tr><td style="color: #5f6368; width: 30%;"><strong>Fruit Category:</strong></td><td style="color: #d93025; font-weight: bold;">{item['fruit']} ({item['temp_range']})</td></tr>
+                <tr><td style="color: #5f6368;"><strong>Consignment Volume:</strong></td><td><strong>{item['cartons']}</strong> | Total Boxes: {len(item['containers_detail'])} Reefer(s)</td></tr>
                 <tr><td style="color: #5f6368;"><strong>Vessel & Voyage:</strong></td><td>{item['vessel']} ({item['voyage']}) &bull; Terminal: <strong>{item['terminal']}</strong></td></tr>
                 <tr><td style="color: #5f6368;"><strong>Port of Loading:</strong></td><td>{item['pol']}</td></tr>
             </table>
@@ -454,11 +456,11 @@ def send_container_wise_intelligence_email(report_items, attached_excel_path=Non
         <div style="max-width: 720px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #dadce0; overflow: hidden;">
             <div style="background-color: #1a73e8; color: white; padding: 20px 24px;">
                 <h2 style="margin: 0; font-size: 20px;">🍎 JNCH Fresh Fruit Import Intelligence Audit</h2>
-                <p style="margin: 4px 0 0 0; font-size: 13px; opacity: 0.95;">Advance Produce Radar & Bull/Bear Supply Warning for Vashi APMC</p>
+                <p style="margin: 4px 0 0 0; font-size: 13px; opacity: 0.95;">Advance Produce Radar & Bull/Bear Supply Warning for Vashi APMC & Turbhe</p>
             </div>
             <div style="padding: 20px;">
                 <div style="background-color: #e8f0fe; border-left: 4px solid #1a73e8; padding: 12px 16px; border-radius: 4px; margin-bottom: 20px; font-size: 13px;">
-                    <strong>📎 Attached File:</strong> The complete filtered reefer manifest spreadsheet is attached below for reference.
+                    <strong>📎 Attached File:</strong> The complete filtered reefer manifest spreadsheet is attached below with all container records.
                 </div>
                 {cards_html}
                 <div style="text-align: center; margin-top: 20px; font-size: 11px; color: #80868b; border-top: 1px solid #f1f3f4; padding-top: 15px;">
@@ -543,7 +545,7 @@ async def run_tracker():
         except Exception as e:
             print(f"[!] Failed to scrape DPD listings: {e}")
 
-        # Also inspect manifests already inside download folder
+        # Also parse manifests already inside download folder
         local_files = [os.path.join(DOWNLOAD_DIR, f) for f in os.listdir(DOWNLOAD_DIR) if f.endswith(('.xlsx', '.xls'))]
         for lf in local_files:
             parts = os.path.basename(lf).replace(".xlsx", "").replace(".xls", "").split("_")
@@ -556,7 +558,7 @@ async def run_tracker():
 
         if all_reefers:
             master_df = pd.concat(all_reefers, ignore_index=True).drop_duplicates(subset=["_CNTR"])
-            print(f"\n[***] Active Produce Reefers Detected: {len(master_df)}. Starting Intelligence Pipeline...")
+            print(f"\n[***] Active Produce Reefers Detected: {len(master_df)}. Starting Fast Pipeline...")
 
             report_items = []
             timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -571,12 +573,12 @@ async def run_tracker():
                 pol_val = group.iloc[0]["_POL"]
                 manifest_bl = group.iloc[0].get("_MANIFEST_BL", "DIRECT_SEARCH_REQUIRED")
 
-                print(f"\n[*] Resolving Consignment {vessel} ({line}) with sample {sample_cntr}...")
+                print(f"\n[*] Processing Consignment: {vessel} ({len(group)} reefers)...")
                 master_bl = None
                 active_terminal = term_hint
 
                 # 1. Direct manifest B/L check
-                if manifest_bl not in ["DIRECT_SEARCH_REQUIRED", "nan", "None", ""]:
+                if manifest_bl not in ["DIRECT_SEARCH_REQUIRED", "nan", "None", "", "ZZZCDBT0017EMTY"]:
                     master_bl = manifest_bl
                     print(f"    -> Direct B/L from manifest: {master_bl}")
                 else:
@@ -585,20 +587,21 @@ async def run_tracker():
                     if found_term:
                         active_terminal = found_term
 
-                # 3. Known fallback for berthed MSC Barbara
+                # Known fallback for berthed MSC Barbara
                 if not master_bl and "BARBARA" in vessel.upper():
                     master_bl = "MEDUW5386315"
                     active_terminal = "BMCT (PSA Mumbai)"
 
                 if not master_bl:
-                    master_bl = f"ADVANCE FILING (Pending Vessel Discharge at {active_terminal})"
+                    master_bl = f"ADVANCE FILING (Pending Berth at {active_terminal})"
 
-                # 3-Step ICEGATE Scraper
+                # Query ICEGATE exactly ONCE per consignment group
                 icegate_data = await scrape_icegate_detailed(page, master_bl)
 
-                # Physical Milestone Tracking
+                # Fast-path pre-arrival containers vs. berthed containers
                 containers_detail = []
                 temps = []
+
                 for _, row in group.iterrows():
                     cntr = row["_CNTR"]
                     grp_cfs = row["_GROUP_CFS"]
@@ -610,22 +613,40 @@ async def run_tracker():
                     if temp_val != "N/A":
                         temps.append(temp_val)
 
-                    print(f"    [*] Physical Status check for {cntr}...")
-                    ldb = await scrape_ldb_live_status(page, cntr, grp_cfs)
+                    cfs_name = CFS_NAME_MAP.get(grp_cfs, f"Nominated Yard ({grp_cfs})")
 
-                    containers_detail.append({
-                        "cntr": cntr,
-                        "iso": iso_val,
-                        "temp": temp_val,
-                        "weight": wt_val,
-                        "client_code": cl_val,
-                        "port_in": ldb["port_in_time"],
-                        "port_out": ldb["port_out_time"],
-                        "cfs_name": ldb["cfs_name"],
-                        "latest_milestone": ldb["latest_milestone"],
-                        "market_pressure": ldb["market_pressure"]
-                    })
+                    # Fast-path: If vessel is advance/sailing, map in-memory without slow network calls
+                    if "ADVANCE" in master_bl or "PENDING" in master_bl:
+                        containers_detail.append({
+                            "cntr": cntr,
+                            "iso": iso_val,
+                            "temp": temp_val,
+                            "weight": wt_val,
+                            "client_code": cl_val,
+                            "port_in": "PENDING BERTH",
+                            "port_out": "PENDING DISCHARGE",
+                            "cfs_name": cfs_name,
+                            "latest_milestone": "DISCHARGED ON DOCK (Stage 1 - Inbound)",
+                            "market_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
+                        })
+                    else:
+                        # Vessel has berthed: perform targeted LDB status check
+                        print(f"    [*] Checking physical gate status for berthed box {cntr}...")
+                        ldb = await scrape_ldb_live_status(page, cntr, grp_cfs)
+                        containers_detail.append({
+                            "cntr": cntr,
+                            "iso": iso_val,
+                            "temp": temp_val,
+                            "weight": wt_val,
+                            "client_code": cl_val,
+                            "port_in": ldb["port_in_time"],
+                            "port_out": ldb["port_out_time"],
+                            "cfs_name": ldb["cfs_name"],
+                            "latest_milestone": ldb["latest_milestone"],
+                            "market_pressure": ldb["market_pressure"]
+                        })
 
+                # Safe float-to-string setpoint formatting
                 temp_range_str = f"Setpoints: {', '.join(sorted(list(set(str(t) for t in temps))))}°C" if temps else "Refrigerated"
 
                 report_items.append({
@@ -642,12 +663,12 @@ async def run_tracker():
                     "containers_detail": containers_detail
                 })
 
-            # Sync Dashboard JSON
+            # Build consolidated state feed for dashboard.html
             dashboard_state = {
                 "last_updated": datetime.now().strftime("%d-%b-%Y %H:%M IST"),
                 "summary": {
                     "total_active_reefers": len(master_df),
-                    "sailing_inbound": sum(1 for item in report_items for c in item["containers_detail"] if "SAILING" in c["latest_milestone"] or "PENDING" in c["port_in"]),
+                    "sailing_inbound": sum(1 for item in report_items for c in item["containers_detail"] if "DISCHARGED ON DOCK" in c["latest_milestone"] or "PENDING" in c["port_in"]),
                     "holding_at_cfs": sum(1 for item in report_items for c in item["containers_detail"] if "CFS IN" in c["latest_milestone"]),
                     "dispatched_to_apmc": sum(1 for item in report_items for c in item["containers_detail"] if "CFS OUT" in c["latest_milestone"])
                 },
@@ -660,7 +681,7 @@ async def run_tracker():
                         "pol": item["pol"],
                         "master_bl": item["master_bl"],
                         "commodity": item["fruit"],
-                        "status": "SAILING IN-TRANSIT" if any("SAILING" in c["latest_milestone"] for c in item["containers_detail"]) else "DISCHARGED & CLEARING",
+                        "status": "DISCHARGED & CLEARING" if any("CFS" in c["latest_milestone"] for c in item["containers_detail"]) else "SAILING IN-TRANSIT",
                         "containers": [
                             {
                                 "container_no": c["cntr"],
@@ -683,7 +704,7 @@ async def run_tracker():
 
             with open(TRACKER_STATE_JSON, "w", encoding="utf-8") as f:
                 json.dump(dashboard_state, f, indent=2)
-            print(f"[+] Synced live state to {TRACKER_STATE_JSON}")
+            print(f"[+] Successfully synced live state to {TRACKER_STATE_JSON}")
 
             # Send Email Alert
             send_container_wise_intelligence_email(report_items, attached_excel)
