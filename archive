@@ -1,0 +1,41 @@
+import os
+import re
+import asyncio
+from playwright.async_api import async_playwright
+
+TEST_CNTR = "MEDU9839122"
+
+async def extract_bl_and_cfs(cntr_no):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = r"E:\DPD_Tracker_Sandbox\pw-browsers"
+    
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        
+        url = "https://india.globalpsa.com/container-tracking/"
+        print(f"[*] Querying BMCT / PSA for {cntr_no}...")
+        await page.goto(url, wait_until="networkidle", timeout=30000)
+        
+        # Fill search input
+        input_box = page.locator("input[type='text']").first
+        await input_box.fill(cntr_no)
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(4000)
+        
+        body_text = await page.inner_text("body")
+        await browser.close()
+        
+        # Look for the Bill of Lading (B/L starts with line prefix e.g. MEDU, WHA, ONE)
+        bl_match = re.search(r'\b([A-Z]{4}[0-9A-Z]{7,12})\b', body_text)
+        found_bl = None
+        if bl_match:
+            # Exclude the container number itself
+            candidates = [m for m in re.findall(r'\b[A-Z]{4}[0-9A-Z]{7,12}\b', body_text) if m != cntr_no]
+            if candidates:
+                found_bl = candidates[0]
+                
+        print(f"[+] Extracted Master B/L: {found_bl}")
+        return found_bl
+
+if __name__ == "__main__":
+    asyncio.run(extract_bl_and_cfs(TEST_CNTR))
