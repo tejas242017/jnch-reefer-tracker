@@ -1,84 +1,12 @@
 {
-  "last_updated": "08-Oct-2026 17:42 IST",
+  "last_updated": "09-Oct-2026 09:55 IST",
   "summary": {
-    "total_active_reefers": 400,
-    "sailing_inbound": 400,
+    "total_active_reefers": 395,
+    "sailing_inbound": 395,
     "holding_at_cfs": 0,
     "dispatched_to_apmc": 0
   },
   "consignments": [
-    {
-      "vessel": "CELSIUS EDINBURGH",
-      "voyage": "018N",
-      "line": "ONE (Ocean Network Express) Line (i) Pvt. Ltd.",
-      "terminal": "BMCT / GTI (Cascade)",
-      "pol": "E",
-      "master_bl": "ADVANCE FILING (Pending Berth at BMCT / GTI (Cascade))",
-      "commodity": "Advance Produce Consignment",
-      "status": "SAILING IN-TRANSIT",
-      "containers": [
-        {
-          "container_no": "FBIU5259800",
-          "iso": "4530",
-          "temp": "nan\u00b0C",
-          "gross_wt": "4500 KGS",
-          "cfs_yard": "Nominated Yard (MTYONE)",
-          "client_code": "N/A",
-          "port_in": "PENDING BERTH",
-          "port_out": "PENDING DISCHARGE",
-          "cfs_status": "DISCHARGED ON DOCK (Stage 1 - Inbound)",
-          "apmc_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
-        },
-        {
-          "container_no": "ONEU9115584",
-          "iso": "4530",
-          "temp": "nan\u00b0C",
-          "gross_wt": "4500 KGS",
-          "cfs_yard": "Nominated Yard (MTYONE)",
-          "client_code": "N/A",
-          "port_in": "PENDING BERTH",
-          "port_out": "PENDING DISCHARGE",
-          "cfs_status": "DISCHARGED ON DOCK (Stage 1 - Inbound)",
-          "apmc_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
-        },
-        {
-          "container_no": "SZLU9445833",
-          "iso": "4530",
-          "temp": "nan\u00b0C",
-          "gross_wt": "4500 KGS",
-          "cfs_yard": "Nominated Yard (MTYONE)",
-          "client_code": "N/A",
-          "port_in": "PENDING BERTH",
-          "port_out": "PENDING DISCHARGE",
-          "cfs_status": "DISCHARGED ON DOCK (Stage 1 - Inbound)",
-          "apmc_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
-        },
-        {
-          "container_no": "TTNU8749009",
-          "iso": "4530",
-          "temp": "nan\u00b0C",
-          "gross_wt": "4500 KGS",
-          "cfs_yard": "Nominated Yard (MTYONE)",
-          "client_code": "N/A",
-          "port_in": "PENDING BERTH",
-          "port_out": "PENDING DISCHARGE",
-          "cfs_status": "DISCHARGED ON DOCK (Stage 1 - Inbound)",
-          "apmc_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
-        },
-        {
-          "container_no": "TTNU8750329",
-          "iso": "4530",
-          "temp": "nan\u00b0C",
-          "gross_wt": "4500 KGS",
-          "cfs_yard": "Nominated Yard (MTYONE)",
-          "client_code": "N/A",
-          "port_in": "PENDING BERTH",
-          "port_out": "PENDING DISCHARGE",
-          "cfs_status": "DISCHARGED ON DOCK (Stage 1 - Inbound)",
-          "apmc_pressure": "INBOUND WATER TRANSIT (ETA 48-72h)"
-        }
-      ]
-    },
     {
       "vessel": "HMM TACOMA",
       "voyage": "139",
